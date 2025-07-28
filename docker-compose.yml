@@ -1,0 +1,46 @@
+version: "3.8"
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: api
+    command: ["sh", "-c", "./migrate && ./api"]
+    ports:
+      - "8082:8082"
+    environment:
+      - DATABASE_URL=postgres://postgres:postgres@192.168.1.163:5432/bg_jobs?sslmode=disable
+      - PORT=8082
+      - ENV=test
+      - GIN_MODE=release
+      - MAX_DB_CONNECTION=100
+      - MIN_DB_CONNECTION=20
+      - MAX_WORKERS=500
+      - JWT_SECRET_KEY=your-secret-key
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: worker
+    command: ["./worker"]
+    environment:
+      - DATABASE_URL=postgres://postgres:postgres@192.168.1.163:5432/bg_jobs?sslmode=disable
+      - PORT=8082
+      - ENV=test
+      - GIN_MODE=release
+      - MAX_DB_CONNECTION=100
+      - MIN_DB_CONNECTION=20
+      - MAX_WORKERS=500
+      - JWT_SECRET_KEY=your-secret-key
+    restart: unless-stopped
+
+  riverui:
+    image: ghcr.io/riverqueue/riverui:latest
+    ports:
+      - "8080:8080"
+    environment:
+      - DATABASE_URL=postgres://postgres:postgres@192.168.1.163:5432/bg_jobs?sslmode=disable
+    restart: unless-stopped

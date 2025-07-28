@@ -1,0 +1,1 @@
+~/go/bin/river migrate-up --database-url "postgres://postgres:postgres@localhost:5432/bg_jobs"
