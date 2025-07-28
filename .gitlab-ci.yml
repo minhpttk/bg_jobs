@@ -1,0 +1,53 @@
+stages:
+  - build
+  - deploy
+
+variables:
+  DOCKER_HOST: tcp://docker:2375
+  DOCKER_TLS_CERTDIR: ""
+  IMAGE_TAG: "${CI_COMMIT_REF_SLUG}"
+
+
+BuildDev:
+  stage: build
+  image: docker:24.0.5
+  services:
+    - docker:24.0.5-dind
+  before_script:
+    - docker info
+  rules:
+    - if: $CI_COMMIT_BRANCH == "develop"
+  script:
+    - docker login -u $hilab_registry_user -p $hilab_registry_pass $hilab_registry_url
+    - docker build --build-arg APP_ENV=test -t $IMAGE_NAME:$IMAGE_TAG .
+    - docker push $IMAGE_NAME:$IMAGE_TAG
+
+DeployDev:
+  stage: deploy
+  rules:
+    - if: $CI_COMMIT_BRANCH == "develop"
+  script:
+    - apk add curl
+    - curl -X POST $deploy_webhook_dev
+
+BuildProd:
+  stage: build
+  image: docker:24.0.5
+  services:
+    - docker:24.0.5-dind
+  before_script:
+    - docker info
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+  script:
+    - docker login -u $hilab_registry_user -p $hilab_registry_pass $hilab_registry_url
+    - docker build --build-arg APP_ENV=production -t $IMAGE_NAME:$IMAGE_TAG .
+    - docker push $IMAGE_NAME:$IMAGE_TAG
+
+DeployProd:
+  stage: deploy
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+  script:
+    - apk add curl
+    - curl -X POST $deploy_webhook
