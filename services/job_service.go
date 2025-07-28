@@ -189,7 +189,6 @@ type GetJobsResponse struct {
 }
 
 func (s *JobService) GetJobs(ctx context.Context, req *GetJobsRequest) (*GetJobsResponse, error) {
-
 	if req.Page < 1 {
 		req.Page = 1
 	}
@@ -322,8 +321,55 @@ type DeleteJobRequest struct {
 }
 
 func (s *JobService) DeleteJob(ctx context.Context, req *DeleteJobRequest) error {
-	if err := s.db.GORM.Model(&models.Jobs{}).Where("id = ? AND user_id = ? AND is_deleted = false", req.Id, uuid.MustParse(req.UserId)).
-		Update("is_deleted", true).Error; err != nil {
+	// Parse user ID once
+	userID, err := uuid.Parse(req.UserId)
+	if err != nil {
+		return fmt.Errorf("invalid user ID: %w", err)
+	}
+
+	jobID, err := uuid.Parse(req.Id)
+	if err != nil {
+		return fmt.Errorf("invalid job ID: %w", err)
+	}
+
+	// Begin transaction
+	tx := s.db.GORM.Begin()
+	if tx.Error != nil {
+		return tx.Error
+	}
+
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	// Find and lock the job record
+	job := &models.Jobs{}
+	if err := tx.Where("id = ? AND user_id = ? AND is_deleted = false", jobID, userID).First(job).Error; err != nil {
+		tx.Rollback()
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return fmt.Errorf("job not found or access denied")
+		}
+		return err
+	}
+
+	// Soft delete the job
+	if err := tx.Model(job).Update("is_deleted", true).Error; err != nil {
+		tx.Rollback()
+		return err
+	}
+
+	// Delete job from River queue
+	if job.RiverJobID != 0 {
+		if _, err := GetRiverClientInstance(s.db).Client.JobDelete(ctx, job.RiverJobID); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("failed to delete job from River queue: %w", err)
+		}
+	}
+
+	// Commit transaction
+	if err := tx.Commit().Error; err != nil {
 		return err
 	}
 	return nil
@@ -385,11 +431,4 @@ func (s *JobService) GetJobsForWorker() ([]models.Jobs, error) {
 
 	log.Println("number of valid jobs", len(jobs))
 	return jobs, nil
-}
-
-func (s *JobService) UpdateJobLastRun(ctx context.Context, jobID uuid.UUID) error {
-	now := time.Now()
-	query := `UPDATE jobs SET last_run_at = $1, updated_at = $2 WHERE id = $3 AND status = 'active' AND is_deleted = false`
-	err := s.db.GORM.Exec(query, now, now, jobID).Error
-	return err
 }

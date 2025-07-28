@@ -39,6 +39,7 @@ func (w *IntervalJobWorker) Work(ctx context.Context, job *river.Job[shared.Inte
 		return err
 	}
 	if !isExistedJob {
+		_ = river.JobCancel(fmt.Errorf("Job %s is no longer active", job.Args.JobID))
 		return nil
 	}
 

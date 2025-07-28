@@ -10,26 +10,43 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
+	"golang.org/x/time/rate"
 )
 
 func CORSMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		allowedOrigins := []string{
-			"http://localhost:3000",
-			"https://dev.hiagi.ai",
-			"https://app.hiagi.ai",
+
+		allowedOrigins := strings.Split(os.Getenv("ALLOWED_ORIGINS"), ",")
+
+		if allowedOrigins == nil || len(allowedOrigins) == 0 {
+			allowedOrigins = []string{
+				"http://localhost:3000",
+				"https://dev.hiagi.ai",
+				"https://app.hiagi.ai",
+			}
 		}
+
+		allowed := false
+
 		origin := c.Request.Header.Get("Origin")
 		for _, allowedOrigin := range allowedOrigins {
-			if origin == allowedOrigin {
+			if origin == strings.TrimSpace(allowedOrigin) {
+				allowed = true
 				c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
 				break
 			}
+		}
+
+		if !allowed {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Origin not allowed"})
+			c.Abort()
+			return
 		}
 
 		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
@@ -45,7 +62,24 @@ func CORSMiddleware() gin.HandlerFunc {
 	}
 }
 
+func RateLimiter() gin.HandlerFunc {
+	limiter := rate.NewLimiter(60, 100) // 100 requests per minute
+	return func(c *gin.Context) {
+
+		if limiter.Allow() {
+			c.Next()
+		} else {
+			c.JSON(http.StatusTooManyRequests, gin.H{
+				"message": "Limite exceed",
+			})
+		}
+
+	}
+}
+
 func NewRouter(server *gin.Engine, db *config.Database) {
+	server.Use(RateLimiter())
+
 	// Create River client for job handling
 	riverClient := services.GetRiverClientInstance(db).Client
 
@@ -63,10 +97,10 @@ func NewRouter(server *gin.Engine, db *config.Database) {
 
 	router := server.Group("/api")
 
+	// ===== PROTECTED:: job routings ====== //
 	jobService := services.NewJobService(db)
 	jobHandler := handlers.NewJobHandler(jobService)
 
-	// ===== PROTECTED:: job routings ====== //
 	jobRouter := router.Group("/jobs", middleware.JWTAuthMiddleware())
 
 	jobRouter.POST("", jobHandler.CreateJob)
@@ -83,7 +117,6 @@ func main() {
 	if err != nil {
 		log.Println("Warning: Error loading .env file:", err)
 	}
-
 	db, err := config.NewDatabase()
 	if err != nil {
 		log.Fatal("Could not connect to the database ", err)

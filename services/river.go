@@ -35,14 +35,13 @@ func GetRiverClientInstance(db *config.Database) *RiverClient {
 		tasksService := NewTasksService(db)
 		river.AddWorker(newWorkers, NewIntervalJobWorker(jobService, tasksService))
 
-		maxWorkers := os.Getenv("MAX_WORKERS")
-		if maxWorkers == "" {
-			maxWorkers = "500"
-		}
-
-		maxWorkersInt, err := strconv.Atoi(maxWorkers)
-		if err != nil {
-			log.Fatal("Failed to convert MAX_WORKERS to int: ", err)
+		maxWorkersInt := 500 // default value
+		if maxWorkers := os.Getenv("MAX_WORKERS"); maxWorkers != "" {
+			if parsed, err := strconv.Atoi(maxWorkers); err != nil {
+				log.Fatal("Failed to convert MAX_WORKERS to int: ", err)
+			} else {
+				maxWorkersInt = parsed
+			}
 		}
 
 		newClient, err := river.NewClient(

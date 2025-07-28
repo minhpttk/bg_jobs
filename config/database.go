@@ -28,27 +28,27 @@ func NewDatabase() (*Database, error) {
 		return nil, err
 	}
 
-	maxConnections := os.Getenv("MAX_DB_CONNECTION")
-	if maxConnections == "" {
-		maxConnections = "100"
+	// Set max connections with default fallback
+	maxConnStr := os.Getenv("MAX_DB_CONNECTION")
+	if maxConnStr == "" {
+		maxConnStr = "100"
 	}
-
-	minConnections := os.Getenv("MIN_DB_CONNECTION")
-	if minConnections == "" {
-		minConnections = "20"
-	}
-
-	maxConns, err := strconv.Atoi(maxConnections)
-	if err != nil {
+	if maxConns, err := strconv.Atoi(maxConnStr); err != nil {
 		return nil, err
+	} else {
+		config.MaxConns = int32(maxConns)
 	}
-	config.MaxConns = int32(maxConns)
 
-	minConns, err := strconv.Atoi(minConnections)
-	if err != nil {
-		return nil, err
+	// Set min connections with default fallback
+	minConnStr := os.Getenv("MIN_DB_CONNECTION")
+	if minConnStr == "" {
+		minConnStr = "20"
 	}
-	config.MinConns = int32(minConns)
+	if minConns, err := strconv.Atoi(minConnStr); err != nil {
+		return nil, err
+	} else {
+		config.MinConns = int32(minConns)
+	}
 
 	pgxPool, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {

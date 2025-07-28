@@ -75,7 +75,12 @@ type AIAgentClient struct {
 func NewAIAgentClient() *AIAgentClient {
 	return &AIAgentClient{
 		HTTPClient: &http.Client{
-			Timeout: 10 * time.Minute, // 10 minutes timeout
+			Timeout: 2 * time.Minute, // 2 minutes timeout
+			Transport: &http.Transport{
+				MaxIdleConns:        100,
+				MaxIdleConnsPerHost: 10,
+				IdleConnTimeout:     2 * time.Minute, // 2 minutes timeout
+			},
 		},
 	}
 }

@@ -1,7 +1,6 @@
 package middleware
 
 import (
-	"fmt"
 	"net/http"
 	"os"
 	"strings"
@@ -9,6 +8,13 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 )
+
+type JWTClaims struct {
+	UserID string   `json:"sub"`
+	Email  string   `json:"email"`
+	Roles  []string `json:"roles"`
+	jwt.RegisteredClaims
+}
 
 // JWTAuthMiddleware verifies JWT token from Authorization header
 func JWTAuthMiddleware() gin.HandlerFunc {
@@ -35,7 +41,7 @@ func JWTAuthMiddleware() gin.HandlerFunc {
 			return
 		}
 		// Parse and validate the token
-		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		token, err := jwt.ParseWithClaims(tokenString, &JWTClaims{}, func(token *jwt.Token) (interface{}, error) {
 			// Make sure the signing method is what we expect
 			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 				return nil, jwt.ErrSignatureInvalid
@@ -57,14 +63,17 @@ func JWTAuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		// Extract claims and set user context
-		if claims, ok := token.Claims.(jwt.MapClaims); ok {
-			c.Set("email", claims["email"])
-			c.Set("user_id", claims["sub"])
-			c.Set("roles", claims["roles"])
+		claims, ok := token.Claims.(*JWTClaims)
+
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Token is not valid"})
+			c.Abort()
+			return
 		}
 
-		fmt.Println(c.GetString("user_id"))
+		c.Set("email", claims.Email)
+		c.Set("user_id", claims.UserID)
+		c.Set("roles", claims.Roles)
 
 		c.Next()
 	}
