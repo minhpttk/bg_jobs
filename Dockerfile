@@ -47,7 +47,7 @@ RUN chown -R appuser:appuser /root/
 USER appuser
 
 # Expose port
-EXPOSE 8082
+EXPOSE 3008
 
 # Default command (can be overridden)
 CMD ["./api"] 

@@ -8,10 +8,10 @@ services:
     container_name: api
     command: ["sh", "-c", "./migrate && ./api"]
     ports:
-      - "8082:8082"
+      - "3008:3008"
     environment:
       - DATABASE_URL=postgres://postgres:postgres@192.168.1.163:5432/bg_jobs?sslmode=disable
-      - PORT=8082
+      - PORT=3008
       - ENV=test
       - GIN_MODE=release
       - MAX_DB_CONNECTION=100
@@ -28,7 +28,7 @@ services:
     command: ["./worker"]
     environment:
       - DATABASE_URL=postgres://postgres:postgres@192.168.1.163:5432/bg_jobs?sslmode=disable
-      - PORT=8082
+      - PORT=3008
       - ENV=test
       - GIN_MODE=release
       - MAX_DB_CONNECTION=100
