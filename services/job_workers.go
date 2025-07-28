@@ -39,7 +39,6 @@ func (w *IntervalJobWorker) Work(ctx context.Context, job *river.Job[shared.Inte
 		return err
 	}
 	if !isExistedJob {
-		log.Printf("Job %s is not active", job.Args.JobID)
 		return nil
 	}
 
@@ -104,7 +103,7 @@ func (w *IntervalJobWorker) Work(ctx context.Context, job *river.Job[shared.Inte
 		return err
 	}
 
-	log.Printf("Job %s completed successfully and rescheduled", job.Args.JobID)
+	log.Printf("Job %s completed successfully", job.Args.JobID)
 	return nil
 }
 
@@ -112,8 +111,7 @@ func (w *IntervalJobWorker) Work(ctx context.Context, job *river.Job[shared.Inte
 func (w *IntervalJobWorker) rescheduleJobIfNeeded(ctx context.Context, jobID uuid.UUID) {
 	// Get the job from database
 	dbJob := &models.Jobs{}
-	if err := w.jobService.db.GORM.Where("id = ? AND is_deleted = false AND status = 'active'", jobID).First(dbJob).Error; err != nil {
-		log.Printf("Failed to get job for rescheduling: %v", err)
+	if err := w.jobService.db.GORM.Where("id = ? AND type = 'interval' AND status = 'active' AND is_deleted = false", jobID).First(dbJob).Error; err != nil {
 		return
 	}
 
@@ -207,17 +205,71 @@ func processClientAgentJob(jobArgs shared.ProcessJobArgs, tasksService *TasksSer
 		})
 
 		log.Printf("Plans: %v", len(plans))
+
+		// log plans json
+		plansJSON, _ := json.Marshal(plans)
+		log.Printf("Plans: %s", string(plansJSON))
+
 		var tasksWithDependencies, tasksWithoutDependencies []shared.IAgentTask
 
-		for _, plan := range plans {
-			if len(plan.Dependencies) > 0 {
+		for index, plan := range plans {
+			if index == 0 || len(plan.Dependencies) > 0 {
 				tasksWithDependencies = append(tasksWithDependencies, plan)
 			} else {
 				tasksWithoutDependencies = append(tasksWithoutDependencies, plan)
 			}
 		}
+		// log tasksWithDependencies json
+		tasksWithDependenciesJSON, _ := json.Marshal(tasksWithDependencies)
+		log.Printf("Tasks with dependencies: %s", string(tasksWithDependenciesJSON))
+
+		// log tasksWithoutDependencies json
+		tasksWithoutDependenciesJSON, _ := json.Marshal(tasksWithoutDependencies)
+		log.Printf("Tasks without dependencies: %s", string(tasksWithoutDependenciesJSON))
 
 		var snapshotStepResults []map[string]interface{}
+
+		// Execute tasks with dependencies sequentially
+		if len(tasksWithDependencies) > 0 {
+			for _, step := range tasksWithDependencies {
+				stepInt := step.Step
+
+				// Filter previous results for dependencies
+				var filteredPrevResults []map[string]interface{}
+				if len(step.Dependencies) > 0 {
+					for _, result := range snapshotStepResults {
+						for _, dep := range step.Dependencies {
+							if resultTaskID, ok := result["taskId"].(string); ok && dep == resultTaskID {
+								filteredPrevResults = append(filteredPrevResults, result)
+								break
+							}
+						}
+					}
+				}
+
+				// Prepare task with previous results
+				taskStr := step.Task
+				if len(filteredPrevResults) > 0 {
+					prevResultsJSON, _ := json.Marshal(filteredPrevResults)
+					taskStr += fmt.Sprintf("\nPrevious results: %s", string(prevResultsJSON))
+				}
+
+				response, err := executeAIAgent(step.AgentAddress+"/messages", taskStr)
+				if err != nil {
+					log.Printf("Failed to process AI agent job: %v", err)
+					continue
+				}
+
+				result := map[string]interface{}{
+					"agentName": step.AgentName,
+					"taskId":    step.TaskID,
+					"content":   response,
+				}
+
+				snapshotStepResults = append(snapshotStepResults, result)
+				log.Printf("Completed task with dependencies: %s (step %d)", step.TaskID, stepInt)
+			}
+		}
 
 		// Execute tasks without dependencies in parallel
 		if len(tasksWithoutDependencies) > 0 {
@@ -259,48 +311,6 @@ func processClientAgentJob(jobArgs shared.ProcessJobArgs, tasksService *TasksSer
 					log.Printf("Error in parallel task execution: %v", err)
 					completedCount++
 				}
-			}
-		}
-
-		// Execute tasks with dependencies sequentially
-		if len(tasksWithDependencies) > 0 {
-			for _, step := range tasksWithDependencies {
-				stepInt := step.Step
-
-				// Filter previous results for dependencies
-				var filteredPrevResults []map[string]interface{}
-				if len(step.Dependencies) > 0 {
-					for _, result := range snapshotStepResults {
-						for _, dep := range step.Dependencies {
-							if resultTaskID, ok := result["taskId"].(string); ok && dep == resultTaskID {
-								filteredPrevResults = append(filteredPrevResults, result)
-								break
-							}
-						}
-					}
-				}
-
-				// Prepare task with previous results
-				taskStr := step.Task
-				if len(filteredPrevResults) > 0 {
-					prevResultsJSON, _ := json.Marshal(filteredPrevResults)
-					taskStr += fmt.Sprintf("\nPrevious results: %s", string(prevResultsJSON))
-				}
-
-				response, err := executeAIAgent(step.AgentAddress+"/messages", taskStr)
-				if err != nil {
-					log.Printf("Failed to process AI agent job: %v", err)
-					continue
-				}
-
-				result := map[string]interface{}{
-					"agentName": step.AgentName,
-					"taskId":    step.TaskID,
-					"content":   response,
-				}
-
-				snapshotStepResults = append(snapshotStepResults, result)
-				log.Printf("Completed task with dependencies: %s (step %d)", step.TaskID, stepInt)
 			}
 		}
 

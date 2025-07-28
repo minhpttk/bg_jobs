@@ -76,7 +76,7 @@ func (s *JobService) CreateJob(ctx context.Context, req *models.CreateJobRequest
 	}
 
 	// Update job with River job ID
-	query := `UPDATE jobs SET river_job_id = $1 WHERE id = $2 AND is_deleted = false AND status = 'active'`
+	query := `UPDATE jobs SET river_job_id = $1 WHERE id = $2 AND status = 'active' AND is_deleted = false`
 	err := tx.Exec(query, job.RiverJobID, job.ID).Error
 	if err != nil {
 		tx.Rollback()
@@ -151,7 +151,7 @@ func (s *JobService) calculateNextRunTime(job *models.Jobs) error {
 		}
 		if scheduleData.ExecuteAt != nil {
 			if *scheduleData.ExecuteAt == "now" {
-				now := time.Now()
+				now := time.Now().Add(2 * time.Second)
 				job.NextRunAt = &now
 				return nil
 			} else {
@@ -305,7 +305,7 @@ func (s *JobService) GetJob(ctx context.Context, req *GetJobRequest) (*GetJobRes
 
 func (s *JobService) IsJobActive(ctx context.Context, id uuid.UUID) (bool, error) {
 	job := &models.Jobs{}
-	if err := s.db.GORM.Where("id = ? AND is_deleted = false AND status = 'active'", id).First(job).Error; err != nil {
+	if err := s.db.GORM.Where("id = ? AND status = 'active' AND is_deleted = false", id).First(job).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			log.Println("job not found", id)
 			return false, nil
@@ -352,7 +352,7 @@ func (s *JobService) RescheduleIntervalJob(ctx context.Context, job *models.Jobs
 	}
 
 	// Update database
-	query := `UPDATE jobs SET next_run_at = $1, updated_at = $2, river_job_id = $3 WHERE id = $4 AND is_deleted = false AND status = 'active'`
+	query := `UPDATE jobs SET next_run_at = $1, updated_at = $2, river_job_id = $3 WHERE id = $4 AND status = 'active' AND is_deleted = false`
 	err = s.db.GORM.Exec(query, job.NextRunAt, job.UpdatedAt, job.RiverJobID, job.ID).Error
 	if err != nil {
 		return err
@@ -376,7 +376,7 @@ func (s *JobService) ResumeJob(ctx context.Context, id uuid.UUID) error {
 func (s *JobService) GetJobsForWorker() ([]models.Jobs, error) {
 	var jobs []models.Jobs
 	// Get paginated jobs
-	result := s.db.GORM.Where("is_deleted = false").
+	result := s.db.GORM.Where("status = 'active' AND is_deleted = false").
 		Order("updated_at DESC, created_at DESC").
 		Find(&jobs)
 	if result.Error != nil {
@@ -389,7 +389,7 @@ func (s *JobService) GetJobsForWorker() ([]models.Jobs, error) {
 
 func (s *JobService) UpdateJobLastRun(ctx context.Context, jobID uuid.UUID) error {
 	now := time.Now()
-	query := `UPDATE jobs SET last_run_at = $1, updated_at = $2 WHERE id = $3 AND is_deleted = false AND status = 'active'`
+	query := `UPDATE jobs SET last_run_at = $1, updated_at = $2 WHERE id = $3 AND status = 'active' AND is_deleted = false`
 	err := s.db.GORM.Exec(query, now, now, jobID).Error
 	return err
 }
