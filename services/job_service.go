@@ -124,51 +124,90 @@ func (s *JobService) validateJobRequest(req *models.CreateJobRequest) error {
 	return nil
 }
 
-func (s *JobService) calculateNextRunTime(job *models.Jobs) error {
+func (s *JobService) calculateNextRunTimeForScheduledJob(job *models.Jobs) error {
+	var scheduleData models.ScheduleData
+	if err := json.Unmarshal([]byte(*job.Schedule), &scheduleData); err != nil {
+		return err
+	}
 
-	if job.Type == models.JobTypeInterval {
-		var intervalData models.IntervalData
-		if err := json.Unmarshal([]byte(*job.Interval), &intervalData); err != nil {
-			return err
-		}
-		if intervalData.Value == nil {
-			return fmt.Errorf("value is required for interval jobs")
-		}
-		schedule, err := cron.ParseStandard(*intervalData.Value)
-		if err != nil {
-			return err
-		}
-		now := time.Now()
-		nextRun := schedule.Next(now)
-		job.NextRunAt = &nextRun
+	if scheduleData.ExecuteAt == nil {
+		return fmt.Errorf("execute_at is required for scheduled jobs")
+
+	}
+
+	if *scheduleData.ExecuteAt == "now" {
+		now := time.Now().Add(2 * time.Second)
+		job.NextRunAt = &now
 		return nil
 	}
 
-	if job.Type == models.JobTypeScheduled {
-		var scheduleData models.ScheduleData
-		if err := json.Unmarshal([]byte(*job.Schedule), &scheduleData); err != nil {
-			return err
-		}
-		if scheduleData.ExecuteAt != nil {
-			if *scheduleData.ExecuteAt == "now" {
-				now := time.Now().Add(2 * time.Second)
-				job.NextRunAt = &now
-				return nil
-			} else {
-				executeAt, err := time.ParseInLocation("2006-01-02T15:04", *scheduleData.ExecuteAt, time.Local)
-				if err != nil {
-					return err
-				}
-				executeAtTime := executeAt.UTC()
-				job.NextRunAt = &executeAtTime
-				return nil
-			}
-		}
-
-		return fmt.Errorf("execute_at is required for scheduled jobs")
+	// Parse with timezone support
+	parsedTime, err := s.parseDateTime(*scheduleData.ExecuteAt)
+	if err != nil {
+		return fmt.Errorf("failed to parse execute_at '%s': %w", *scheduleData.ExecuteAt, err)
 	}
 
+	// Validate not in the past
+	if parsedTime.Before(time.Now().UTC()) {
+		return fmt.Errorf("scheduled time cannot be in the past: %s", parsedTime.Format(time.RFC3339))
+	}
+
+	job.NextRunAt = &parsedTime
+	log.Printf("Job %s scheduled for: %s", job.ID, parsedTime.Format(time.RFC3339))
 	return nil
+
+}
+
+func (s *JobService) calculateNextRunTimeForIntervalJob(job *models.Jobs) error {
+	var intervalData models.IntervalData
+	if err := json.Unmarshal([]byte(*job.Interval), &intervalData); err != nil {
+		return err
+	}
+	if intervalData.Value == nil {
+		return fmt.Errorf("value is required for interval jobs")
+	}
+	schedule, err := cron.ParseStandard(*intervalData.Value)
+	if err != nil {
+		return err
+	}
+	now := time.Now()
+	nextRun := schedule.Next(now)
+	job.NextRunAt = &nextRun
+	return nil
+}
+
+func (s *JobService) parseDateTime(dateStr string) (time.Time, error) {
+	supportedFormats := []string{
+		time.RFC3339,           // "2006-01-02T15:04:05Z07:00"
+		"2006-01-02T15:04:05Z", // "2006-01-02T15:04:05Z"
+		"2006-01-02T15:04:05",  // "2006-01-02T15:04:05"
+		"2006-01-02T15:04",     // "2006-01-02T15:04"
+		"2006-01-02 15:04:05",  // "2006-01-02 15:04:05"
+		"2006-01-02 15:04",     // "2006-01-02 15:04"
+	}
+
+	for _, format := range supportedFormats {
+		if t, err := time.Parse(format, dateStr); err == nil {
+			// Convert to UTC if no timezone info
+			if t.Location() == time.UTC || format == time.RFC3339 {
+				return t, nil
+			}
+			return t.UTC(), nil
+		}
+	}
+
+	return time.Time{}, fmt.Errorf("unsupported datetime format: %s", dateStr)
+}
+
+func (s *JobService) calculateNextRunTime(job *models.Jobs) error {
+	switch job.Type {
+	case models.JobTypeInterval:
+		return s.calculateNextRunTimeForIntervalJob(job)
+	case models.JobTypeScheduled:
+		return s.calculateNextRunTimeForScheduledJob(job)
+	default:
+		return fmt.Errorf("unsupported job type: %s", job.Type)
+	}
 
 }
 

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"gin-gorm-river-app/config"
+	"gin-gorm-river-app/models"
 	"gin-gorm-river-app/services"
 	"log"
 	"os"
@@ -84,7 +85,7 @@ func recoverMissedJobs(ctx context.Context, jobService *services.JobService) err
 
 	for _, job := range jobs {
 		// Skip non-interval jobs or inactive jobs
-		if job.Type != "interval" || job.Status != "active" || job.IsDeleted {
+		if job.Type != models.JobTypeInterval || job.Status != models.JobStatusActive || job.IsDeleted {
 			continue
 		}
 
