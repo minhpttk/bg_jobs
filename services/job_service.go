@@ -159,7 +159,8 @@ func (s *JobService) calculateNextRunTime(job *models.Jobs) error {
 				if err != nil {
 					return err
 				}
-				job.NextRunAt = &executeAt
+				executeAtTime := executeAt.UTC()
+				job.NextRunAt = &executeAtTime
 				return nil
 			}
 		}

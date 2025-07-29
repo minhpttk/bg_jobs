@@ -22,13 +22,13 @@ BuildDev:
     - docker build --build-arg APP_ENV=test -t $IMAGE_NAME:$IMAGE_TAG .
     - docker push $IMAGE_NAME:$IMAGE_TAG
 
-DeployDev:
-  stage: deploy
-  rules:
-    - if: $CI_COMMIT_BRANCH == "develop"
-  script:
-    - apk add curl
-    - curl -X POST $deploy_webhook_dev
+# DeployDev:
+#   stage: deploy
+#   rules:
+#     - if: $CI_COMMIT_BRANCH == "develop"
+#   script:
+#     - apk add curl
+#     - curl -X POST $deploy_webhook_dev
 
 BuildProd:
   stage: build
@@ -44,10 +44,10 @@ BuildProd:
     - docker build --build-arg APP_ENV=production -t $IMAGE_NAME:$IMAGE_TAG .
     - docker push $IMAGE_NAME:$IMAGE_TAG
 
-DeployProd:
-  stage: deploy
-  rules:
-    - if: $CI_COMMIT_BRANCH == "main"
-  script:
-    - apk add curl
-    - curl -X POST $deploy_webhook
+# DeployProd:
+#   stage: deploy
+#   rules:
+#     - if: $CI_COMMIT_BRANCH == "main"
+#   script:
+#     - apk add curl
+#     - curl -X POST $deploy_webhook
