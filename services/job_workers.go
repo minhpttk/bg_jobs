@@ -204,13 +204,6 @@ func processClientAgentJob(jobArgs shared.ProcessJobArgs, tasksService *TasksSer
 			stepJ := plans[j].Step
 			return stepI < stepJ
 		})
-
-		log.Printf("Plans: %v", len(plans))
-
-		// log plans json
-		plansJSON, _ := json.Marshal(plans)
-		log.Printf("Plans: %s", string(plansJSON))
-
 		var tasksWithDependencies, tasksWithoutDependencies []shared.IAgentTask
 
 		for index, plan := range plans {

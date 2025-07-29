@@ -148,7 +148,7 @@ func (s *JobService) calculateNextRunTimeForScheduledJob(job *models.Jobs) error
 	}
 
 	// Validate not in the past
-	if parsedTime.Before(time.Now().UTC()) {
+	if parsedTime.Before(time.Now()) {
 		return fmt.Errorf("scheduled time cannot be in the past: %s", parsedTime.Format(time.RFC3339))
 	}
 
@@ -170,7 +170,7 @@ func (s *JobService) calculateNextRunTimeForIntervalJob(job *models.Jobs) error 
 	if err != nil {
 		return err
 	}
-	now := time.Now()
+	now := time.Now() // VPS timezone
 	nextRun := schedule.Next(now)
 	job.NextRunAt = &nextRun
 	return nil
@@ -188,11 +188,13 @@ func (s *JobService) parseDateTime(dateStr string) (time.Time, error) {
 
 	for _, format := range supportedFormats {
 		if t, err := time.Parse(format, dateStr); err == nil {
-			// Convert to UTC if no timezone info
-			if t.Location() == time.UTC || format == time.RFC3339 {
+			// If timezone info is already present (RFC3339 or Z suffix), use as-is
+			if format == time.RFC3339 {
 				return t, nil
 			}
-			return t.UTC(), nil
+			// If no timezone info, treat as VPS local time
+			vpsTime := time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), time.Local)
+			return vpsTime, nil
 		}
 	}
 
