@@ -85,7 +85,7 @@ func (s *RiverClient) ScheduleJobInRiver(ctx context.Context, job *models.Jobs) 
 		MaxAttempts: 3,
 		UniqueOpts: river.UniqueOpts{
 			ByArgs:   true,
-			ByPeriod: 15 * time.Minute,
+			ByPeriod: 4 * time.Minute, // min 5 minutes
 		},
 	})
 	if err != nil {
