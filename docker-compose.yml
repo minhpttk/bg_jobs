@@ -16,7 +16,7 @@ services:
       - GIN_MODE=release
       - MAX_DB_CONNECTION=100
       - MIN_DB_CONNECTION=20
-      - MAX_WORKERS=500
+      - MAX_WORKERS=10
       - JWT_SECRET_KEY=your-secret-key
     restart: unless-stopped
 
@@ -33,7 +33,7 @@ services:
       - GIN_MODE=release
       - MAX_DB_CONNECTION=100
       - MIN_DB_CONNECTION=20
-      - MAX_WORKERS=500
+      - MAX_WORKERS=10
       - JWT_SECRET_KEY=your-secret-key
     restart: unless-stopped
 

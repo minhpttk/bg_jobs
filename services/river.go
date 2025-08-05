@@ -35,7 +35,7 @@ func GetRiverClientInstance(db *config.Database) *RiverClient {
 		tasksService := NewTasksService(db)
 		river.AddWorker(newWorkers, NewIntervalJobWorker(jobService, tasksService))
 
-		maxWorkersInt := 500 // default value
+		maxWorkersInt := 10 // default value
 		if maxWorkers := os.Getenv("MAX_WORKERS"); maxWorkers != "" {
 			if parsed, err := strconv.Atoi(maxWorkers); err != nil {
 				log.Fatal("Failed to convert MAX_WORKERS to int: ", err)
@@ -82,6 +82,10 @@ func (s *RiverClient) ScheduleJobInRiver(ctx context.Context, job *models.Jobs) 
 	}
 	createdJob, err := s.Client.Insert(ctx, args, &river.InsertOpts{
 		ScheduledAt: scheduledAt,
+		UniqueOpts: river.UniqueOpts{
+			ByArgs:   true,
+			ByPeriod: 15 * time.Minute,
+		},
 	})
 	if err != nil {
 		return err

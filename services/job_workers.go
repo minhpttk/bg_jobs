@@ -49,9 +49,6 @@ func (w *IntervalJobWorker) Work(ctx context.Context, job *river.Job[shared.Inte
 		return err
 	}
 
-	// ✅ ADD: Still reschedule even if job failed (for retry)
-	w.rescheduleJobIfNeeded(ctx, job.Args.JobID)
-
 	// Create task
 	taskID, err := w.tasksService.CreateTask(job.Args.JobID, job.Args.Payload)
 	if err != nil {
@@ -88,6 +85,7 @@ func (w *IntervalJobWorker) Work(ctx context.Context, job *river.Job[shared.Inte
 		}
 		return processErr
 	}
+
 	// Convert result to string for storage
 	var resultStr string
 	if str, ok := result.(string); ok {
@@ -105,6 +103,8 @@ func (w *IntervalJobWorker) Work(ctx context.Context, job *river.Job[shared.Inte
 	}
 
 	log.Printf("Job %s completed successfully", job.Args.JobID)
+	// ✅ ADD: Still reschedule even if job failed (for retry)
+	w.rescheduleJobIfNeeded(ctx, job.Args.JobID)
 	return nil
 }
 
