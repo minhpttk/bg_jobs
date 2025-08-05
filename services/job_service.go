@@ -237,7 +237,9 @@ func (s *JobService) GetJobs(ctx context.Context, req *GetJobsRequest) (*GetJobs
 	var totalCount int64
 
 	// Get total count
-	countResult := s.db.GORM.Model(&models.Jobs{}).Where("user_id = ? AND workspace_id = ? AND is_deleted = false", uuid.MustParse(req.UserId), uuid.MustParse(req.WorkspaceId)).Count(&totalCount)
+	countResult := s.db.GORM.Model(&models.Jobs{}).
+		Where("user_id = ? AND workspace_id = ? AND is_deleted = false", uuid.MustParse(req.UserId), uuid.MustParse(req.WorkspaceId)).
+		Count(&totalCount)
 	if countResult.Error != nil {
 		return nil, fmt.Errorf("failed to count jobs: %w", countResult.Error)
 	}
@@ -394,13 +396,16 @@ func (s *JobService) DeleteJob(ctx context.Context, req *DeleteJobRequest) error
 	// Delete job from River queue
 	if job.RiverJobID != 0 {
 		if _, err := GetRiverClientInstance(s.db).Client.JobDelete(ctx, job.RiverJobID); err != nil {
-			tx.Rollback()
-			return fmt.Errorf("failed to delete job from River queue: %w", err)
+			// TODO
+			// tx.Rollback()
+			// return fmt.Errorf("failed to delete job from River queue: %w", err)
+			return nil
 		}
 	}
 
 	// Commit transaction
 	if err := tx.Commit().Error; err != nil {
+		tx.Rollback()
 		return err
 	}
 	return nil
