@@ -395,11 +395,10 @@ func (s *JobService) DeleteJob(ctx context.Context, req *DeleteJobRequest) error
 
 	// Delete job from River queue
 	if job.RiverJobID != 0 {
-		if _, err := GetRiverClientInstance(s.db).Client.JobDelete(ctx, job.RiverJobID); err != nil {
-			// TODO
-			// tx.Rollback()
-			// return fmt.Errorf("failed to delete job from River queue: %w", err)
-			return nil
+		err := tx.Exec(`DELETE FROM river_job WHERE args ->> 'job_id' = ?`, job.ID.String()).Error
+		if err != nil {
+			tx.Rollback()
+			return fmt.Errorf("failed to delete job from River queue: %w", err)
 		}
 	}
 

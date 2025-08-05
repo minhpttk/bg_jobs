@@ -82,7 +82,7 @@ func (s *RiverClient) ScheduleJobInRiver(ctx context.Context, job *models.Jobs) 
 	}
 	createdJob, err := s.Client.Insert(ctx, args, &river.InsertOpts{
 		ScheduledAt: scheduledAt,
-		MaxAttempts: 3,
+		MaxAttempts: 1,
 		UniqueOpts: river.UniqueOpts{
 			ByArgs:   true,
 			ByPeriod: 4 * time.Minute, // min 5 minutes
