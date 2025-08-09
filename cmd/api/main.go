@@ -63,7 +63,27 @@ func CORSMiddleware() gin.HandlerFunc {
 }
 
 func RateLimiter() gin.HandlerFunc {
-	limiter := rate.NewLimiter(60, 100) // 100 requests per minute
+	// Create a rate limiter that allows 60 requests per second with a burst capacity of 100 requests
+	// This means the limiter can handle up to 100 requests immediately, then refills at 60 requests/second
+	limiter := rate.NewLimiter(60, 100) // 60 requests per second, burst of 100
+	return func(c *gin.Context) {
+
+		if limiter.Allow() {
+			c.Next()
+		} else {
+			c.JSON(http.StatusTooManyRequests, gin.H{
+				"message": "Limite exceed",
+			})
+		}
+
+	}
+}
+
+func CustomizeRateLimiter(r float64, b int) gin.HandlerFunc {
+	// Create a rate limiter with custom rate (r) and burst capacity (b)
+	// r: requests per second allowed
+	// b: maximum burst capacity (number of requests that can be processed immediately)
+	limiter := rate.NewLimiter(rate.Limit(r), b)
 	return func(c *gin.Context) {
 
 		if limiter.Allow() {
@@ -106,8 +126,8 @@ func NewRouter(server *gin.Engine, db *config.Database) {
 	jobRouter.POST("", jobHandler.CreateJob)
 	jobRouter.GET("", jobHandler.GetJobs)
 	jobRouter.GET("/:id", jobHandler.GetJob)
-	jobRouter.PATCH("/:id/pause", jobHandler.PauseJob)
-	jobRouter.PATCH("/:id/resume", jobHandler.ResumeJob)
+	jobRouter.PATCH("/:id/pause", CustomizeRateLimiter(1, 5), jobHandler.PauseJob)
+	jobRouter.PATCH("/:id/resume", CustomizeRateLimiter(1, 5), jobHandler.ResumeJob)
 	jobRouter.DELETE("/:id", jobHandler.DeleteJob)
 }
 

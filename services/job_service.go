@@ -269,6 +269,7 @@ func (s *JobService) GetJobs(ctx context.Context, req *GetJobsRequest) (*GetJobs
 
 type GetJobRequest struct {
 	Id        string
+	UserId    string
 	TaskPage  int `json:"taskPage"`
 	TaskLimit int `json:"taskLimit"`
 }
@@ -288,7 +289,7 @@ type GetJobResponse struct {
 
 func (s *JobService) GetJob(ctx context.Context, req *GetJobRequest) (*GetJobResponse, error) {
 	job := &models.Jobs{}
-	if err := s.db.GORM.Where("id = ? AND is_deleted = false", req.Id).First(job).Error; err != nil {
+	if err := s.db.GORM.Where("id = ? AND user_id = ? AND is_deleted = false", req.Id, req.UserId).First(job).Error; err != nil {
 		return nil, err
 	}
 
@@ -442,15 +443,15 @@ func (s *JobService) RescheduleIntervalJob(ctx context.Context, job *models.Jobs
 }
 
 // Pause/Resume jobs
-func (s *JobService) PauseJob(ctx context.Context, id uuid.UUID) error {
-	query := `UPDATE jobs SET status = 'inactive', updated_at = $1 WHERE id = $2`
-	err := s.db.GORM.Exec(query, time.Now(), id).Error
+func (s *JobService) PauseJob(ctx context.Context, id uuid.UUID, userId uuid.UUID) error {
+	query := `UPDATE jobs SET status = 'inactive', updated_at = $1 WHERE id = $2 AND user_id = $3`
+	err := s.db.GORM.Exec(query, time.Now(), id, userId).Error
 	return err
 }
 
-func (s *JobService) ResumeJob(ctx context.Context, id uuid.UUID) error {
-	query := `UPDATE jobs SET status = 'active', updated_at = $1 WHERE id = $2`
-	err := s.db.GORM.Exec(query, time.Now(), id).Error
+func (s *JobService) ResumeJob(ctx context.Context, id uuid.UUID, userId uuid.UUID) error {
+	query := `UPDATE jobs SET status = 'active', updated_at = $1 WHERE id = $2 AND user_id = $3`
+	err := s.db.GORM.Exec(query, time.Now(), id, userId).Error
 	return err
 }
 

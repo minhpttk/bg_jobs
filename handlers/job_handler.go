@@ -86,6 +86,12 @@ func (h *JobHandler) GetJob(c *gin.Context) {
 		return
 	}
 
+	userID := c.GetString("user_id")
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
 	// Get pagination parameters for tasks
 	taskPage := c.DefaultQuery("task_page", "1")
 	taskLimit := c.DefaultQuery("task_limit", "10")
@@ -101,6 +107,7 @@ func (h *JobHandler) GetJob(c *gin.Context) {
 
 	resp, err := h.jobService.GetJob(c, &services.GetJobRequest{
 		Id:        jobID,
+		UserId:    userID,
 		TaskPage:  taskPageInt,
 		TaskLimit: taskLimitInt,
 	})
@@ -120,9 +127,15 @@ func (h *JobHandler) DeleteJob(c *gin.Context) {
 		return
 	}
 
+	userID := c.GetString("user_id")
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
 	err := h.jobService.DeleteJob(c, &services.DeleteJobRequest{
 		Id:     jobID,
-		UserId: c.GetString("user_id"),
+		UserId: userID,
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -139,7 +152,13 @@ func (h *JobHandler) PauseJob(c *gin.Context) {
 		return
 	}
 
-	err := h.jobService.PauseJob(c, uuid.MustParse(jobID))
+	userID := c.GetString("user_id")
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	err := h.jobService.PauseJob(c, uuid.MustParse(jobID), uuid.MustParse(userID))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -155,7 +174,13 @@ func (h *JobHandler) ResumeJob(c *gin.Context) {
 		return
 	}
 
-	err := h.jobService.ResumeJob(c, uuid.MustParse(jobID))
+	userID := c.GetString("user_id")
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	err := h.jobService.ResumeJob(c, uuid.MustParse(jobID), uuid.MustParse(userID))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

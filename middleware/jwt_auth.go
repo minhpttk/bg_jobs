@@ -40,6 +40,13 @@ func JWTAuthMiddleware() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
+
+		secret := os.Getenv("JWT_SECRET_KEY")
+		if secret == "" {
+			c.AbortWithStatusJSON(500, gin.H{"error": "server not configured"})
+			return
+		}
+
 		// Parse and validate the token
 		token, err := jwt.ParseWithClaims(tokenString, &JWTClaims{}, func(token *jwt.Token) (interface{}, error) {
 			// Make sure the signing method is what we expect
@@ -48,7 +55,7 @@ func JWTAuthMiddleware() gin.HandlerFunc {
 			}
 			// Return the secret key for validation
 			// In production, this should come from environment variables
-			return []byte(os.Getenv("JWT_SECRET_KEY")), nil
+			return []byte(secret), nil
 		})
 
 		if err != nil {

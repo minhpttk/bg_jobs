@@ -89,9 +89,9 @@ type Tasks struct {
 
 // Create Job Request DTO
 type CreateJobRequest struct {
-	Name        string    `json:"name" validate:"required"`
-	WorkspaceID uuid.UUID `json:"workspace_id" validate:"required"`
-	Payload     string    `json:"payload" validate:"required"`
+	Name        string    `json:"name" binding:"required,min=1,max=100"`
+	WorkspaceID uuid.UUID `json:"workspace_id" binding:"required"`
+	Payload     string    `json:"payload" binding:"required,max=20000"`
 	Type        JobType   `json:"type" binding:"required,oneof=scheduled interval"`
 	Schedule    *string   `json:"schedule,omitempty"`
 	Interval    *string   `json:"interval,omitempty"`
