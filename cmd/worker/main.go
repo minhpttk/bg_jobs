@@ -46,9 +46,17 @@ func main() {
 
 	// Start interval job scheduler
 	jobService := services.NewJobService(db)
+	taskService := services.NewTasksService(db)
 	go func() {
 		// Wait a bit for River to fully initialize
 		time.Sleep(5 * time.Second)
+		
+		// ✅ ADD: Recover tasks first
+		if err := recoverRunningTasks(context.Background(), taskService); err != nil {
+			log.Printf("Error recovering running tasks: %v", err)
+		}
+		
+		// Then recover missed jobs
 		if err := recoverMissedJobs(context.Background(), jobService); err != nil {
 			log.Printf("Error recovering missed jobs: %v", err)
 		}
@@ -103,5 +111,17 @@ func recoverMissedJobs(ctx context.Context, jobService *services.JobService) err
 	}
 
 	log.Printf("Job recovery completed. Recovered %d jobs.", recoveredCount)
+	return nil
+}
+
+// ✅ ADD: Recover running tasks on startup
+func recoverRunningTasks(ctx context.Context, taskService *services.TasksService) error {
+	log.Println("Starting task recovery process...")
+	
+	if err := taskService.RecoverRunningTasks(); err != nil {
+		return err
+	}
+	
+	log.Println("Task recovery completed successfully")
 	return nil
 }
