@@ -3,9 +3,9 @@
 ## ✅ Đã hoàn thành
 
 ### 1. Database Schema Changes
-- ✅ Thêm column `current_task_id` vào bảng `jobs`
-- ✅ Tạo index cho performance
-- ✅ Migration script tự động
+- ✅ Thêm column `current_task_id` vào bảng `jobs` (GORM auto-migration)
+- ✅ Tạo index cho performance (GORM auto-migration)
+- ✅ Không cần SQL migration thủ công
 
 ### 2. Models
 - ✅ Thêm field `CurrentTaskID` vào struct `Jobs`
@@ -27,12 +27,12 @@
 - ✅ Logging chi tiết cho debugging
 
 ### 6. Migration
-- ✅ SQL migration script
-- ✅ Tự động chạy migration khi setup database
+- ✅ GORM auto-migration tự động tạo column
+- ✅ File SQL migration chỉ để reference
 
-### 7. Documentation
-- ✅ Chi tiết documentation trong `docs/TASK_RECOVERY.md`
-- ✅ Test script `scripts/test_task_recovery.sh`
+### 7. Build & Test
+- ✅ Makefile với commands cho Windows/Linux/Mac
+- ✅ Documentation chi tiết
 
 ## 🔄 Workflow
 
@@ -53,12 +53,24 @@
 - ✅ **Performance**: Chỉ chạy 1 lần khi startup
 - ✅ **Backward Compatible**: Tương thích với dữ liệu cũ
 - ✅ **Logging**: Chi tiết để debug và monitor
+- ✅ **GORM Auto-migration**: Không cần SQL migration thủ công
 
 ## 🧪 Testing
 
-Chạy test để verify:
+### Sử dụng Makefile:
 ```bash
-./scripts/test_task_recovery.sh
+# Xem tất cả commands
+make help
+
+# Chạy migration
+make migrate-up
+
+# Test task recovery
+make test-task-recovery
+
+# Build và run
+make build-worker
+make run-worker
 ```
 
 ## 📝 Files Modified
@@ -69,15 +81,21 @@ services/task_service.go                          # +2 methods
 services/job_service.go                           # +3 methods  
 services/job_workers.go                           # +3 updates
 cmd/worker/main.go                                # +1 function
-migrations/002_add_current_task_id_to_jobs.sql   # +1 file
-migrations/migrate.go                             # +1 function
+migrations/002_add_current_task_id_to_jobs.sql   # +1 file (reference only)
+Makefile                                          # +1 file
 docs/TASK_RECOVERY.md                             # +1 file
-scripts/test_task_recovery.sh                     # +1 file
 ```
 
 ## 🚀 Deployment
 
 1. Deploy code changes
-2. Run migration: `go run cmd/migrate/main.go -action=setup`
-3. Restart worker service
+2. Run migration: `make migrate-up`
+3. Restart worker service: `make run-worker`
 4. Monitor logs để verify task recovery hoạt động
+
+## 💡 Lưu ý quan trọng
+
+- **GORM Auto-migration**: Column `current_task_id` sẽ tự động được tạo khi chạy `make migrate-up`
+- **Không cần SQL migration thủ công**: GORM tự động handle schema changes
+- **Makefile cross-platform**: Hoạt động trên Windows, Linux, Mac
+- **Backward compatible**: Tương thích với dữ liệu cũ
