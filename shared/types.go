@@ -53,3 +53,30 @@ type AIAgentResponse struct {
 type ClientAgentRequest struct {
 	Message string `json:"message"`
 }
+
+// TaskRecoveryArgs represents arguments for task recovery
+type TaskRecoveryArgs struct {
+	JobID       uuid.UUID `json:"job_id"`
+	IntervalID  string    `json:"interval_id"`
+	UserID      uuid.UUID `json:"user_id"`
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	Payload     string    `json:"payload"`
+}
+
+func (args TaskRecoveryArgs) Kind() string {
+	return "task_recovery"
+}
+
+// TaskExecutionArgs represents arguments for individual task execution
+type TaskExecutionArgs struct {
+	JobID       uuid.UUID `json:"job_id"`
+	IntervalID  string    `json:"interval_id"`
+	TaskID      string    `json:"task_id"`
+	UserID      uuid.UUID `json:"user_id"`
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	Payload     string    `json:"payload"`
+}
+
+func (args TaskExecutionArgs) Kind() string {
+	return "task_execution"
+}

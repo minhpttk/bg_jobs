@@ -12,6 +12,7 @@ import (
 	"log"
 	"net/http"
 	"sort"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/riverqueue/river"
@@ -49,63 +50,152 @@ func (w *IntervalJobWorker) Work(ctx context.Context, job *river.Job[shared.Inte
 		return err
 	}
 
-	// Create task
-	taskID, err := w.tasksService.CreateTask(job.Args.JobID, job.Args.Payload)
+	// Check if there's an incomplete interval for this job
+	progress, err := w.jobService.GetJobIntervalProgress(job.Args.JobID)
 	if err != nil {
-		log.Printf("Failed to create task: %v", err)
+		log.Printf("Failed to get job progress: %v", err)
 		return err
 	}
 
-	processJobArgs := shared.ProcessJobArgs{
-		JobID:       job.Args.JobID,
-		TaskID:      taskID,
-		UserID:      job.Args.UserID,
-		WorkspaceID: job.Args.WorkspaceID,
-		Payload:     job.Args.Payload,
-	}
-
-	var processErr error
-	var result interface{}
-	switch payload.ResourceName {
-	case models.AIAgent: // ai_agent
-		log.Printf("Processing AI agent job %s", job.Args.JobID)
-		result, processErr = processAIAgentJob(processJobArgs, w.tasksService)
-	case models.ClientAgent: // client_agent
-		log.Printf("Processing Client agent job %s", job.Args.JobID)
-		result, processErr = processClientAgentJob(processJobArgs, w.tasksService)
-	default:
-		processErr = fmt.Errorf("unknown resource type: %s", payload.ResourceName)
-	}
-
-	if processErr != nil {
-		log.Printf("Job %s failed: %v", job.Args.JobID, processErr)
-		// Update both task and job status to failed
-		if err := w.tasksService.UpdateTaskById(taskID, models.TaskStatusFailed); err != nil {
-			log.Printf("Failed to update task status to failed: %v", err)
+	// If there's a running interval, schedule recovery instead of starting new one
+	if progress != nil && progress.Status == models.IntervalStatusRunning {
+		log.Printf("Found incomplete interval %s for job %s, scheduling recovery", progress.IntervalID, job.Args.JobID)
+		
+		recoveryArgs := shared.TaskRecoveryArgs{
+			JobID:       job.Args.JobID,
+			IntervalID:  progress.IntervalID,
+			UserID:      job.Args.UserID,
+			WorkspaceID: job.Args.WorkspaceID,
+			Payload:     job.Args.Payload,
 		}
-		return processErr
+
+		if err := GetRiverClientInstance(w.jobService.db).ScheduleTaskRecovery(ctx, recoveryArgs); err != nil {
+			log.Printf("Failed to schedule recovery: %v", err)
+			return err
+		}
+
+		// Reschedule the job for next run
+		w.rescheduleJobIfNeeded(ctx, job.Args.JobID)
+		return nil
 	}
 
-	// Convert result to string for storage
-	var resultStr string
-	if str, ok := result.(string); ok {
-		resultStr = str
-	} else {
-		// Convert non-string results to JSON
-		resultJSON, err := json.Marshal(result)
-		if err != nil {
-			return fmt.Errorf("failed to marshal result: %v", err)
-		}
-		resultStr = string(resultJSON)
+	// Start new interval execution
+	totalTasks := w.calculateTotalTasks(payload)
+	progress, err = w.jobService.StartNewInterval(job.Args.JobID, totalTasks)
+	if err != nil {
+		log.Printf("Failed to start new interval: %v", err)
+		return err
 	}
-	if err := w.tasksService.UpdateTaskResult(taskID, resultStr, models.TaskStatusCompleted); err != nil {
+
+	log.Printf("Started new interval %s for job %s with %d tasks", progress.IntervalID, job.Args.JobID, totalTasks)
+
+	// Execute tasks for this interval
+	if err := w.executeIntervalTasks(ctx, job.Args, progress); err != nil {
+		log.Printf("Failed to execute interval tasks: %v", err)
+		return err
+	}
+
+	// Mark interval as completed
+	if err := w.jobService.CompleteInterval(job.Args.JobID, progress.IntervalID); err != nil {
+		log.Printf("Failed to complete interval: %v", err)
 		return err
 	}
 
 	log.Printf("Job %s completed successfully", job.Args.JobID)
-	// ✅ ADD: Still reschedule even if job failed (for retry)
+	
+	// Reschedule job for next run
 	w.rescheduleJobIfNeeded(ctx, job.Args.JobID)
 	return nil
+}
+
+// calculateTotalTasks determines how many tasks need to be executed for this job
+func (w *IntervalJobWorker) calculateTotalTasks(payload models.Payload) int {
+	// For now, we'll use a simple approach based on resource type
+	// In a real implementation, this could be more sophisticated
+	switch payload.ResourceName {
+	case models.AIAgent:
+		return 1 // AI agent jobs typically have 1 task
+	case models.ClientAgent:
+		// Client agent jobs might have multiple tasks based on the plan
+		// For now, we'll assume 1 task, but this could be parsed from the payload
+		return 1
+	default:
+		return 1
+	}
+}
+
+// executeIntervalTasks executes all tasks for an interval
+func (w *IntervalJobWorker) executeIntervalTasks(ctx context.Context, jobArgs shared.IntervalJobArgs, progress *models.IntervalProgress) error {
+	payload := models.Payload{}
+	if err := json.Unmarshal([]byte(jobArgs.Payload), &payload); err != nil {
+		return err
+	}
+
+	// For now, we'll execute a single task per interval
+	// In a more sophisticated implementation, this could handle multiple tasks
+	taskID := uuid.New().String()
+	
+	// Initialize task result
+	taskResult := models.TaskResult{
+		TaskID:    taskID,
+		Status:    models.TaskStatusCreated,
+		StartedAt: time.Now(),
+	}
+	progress.TaskResults[taskID] = taskResult
+	progress.LastUpdatedAt = time.Now()
+
+	if err := w.jobService.UpdateJobIntervalProgress(jobArgs.JobID, progress); err != nil {
+		return err
+	}
+
+	// Execute the task
+	var processErr error
+	var result interface{}
+
+	switch payload.ResourceName {
+	case models.AIAgent:
+		result, processErr = processAIAgentJob(shared.ProcessJobArgs{
+			JobID:       jobArgs.JobID,
+			TaskID:      uuid.MustParse(taskID),
+			UserID:      jobArgs.UserID,
+			WorkspaceID: jobArgs.WorkspaceID,
+			Payload:     jobArgs.Payload,
+		}, w.tasksService)
+	case models.ClientAgent:
+		result, processErr = processClientAgentJob(shared.ProcessJobArgs{
+			JobID:       jobArgs.JobID,
+			TaskID:      uuid.MustParse(taskID),
+			UserID:      jobArgs.UserID,
+			WorkspaceID: jobArgs.WorkspaceID,
+			Payload:     jobArgs.Payload,
+		}, w.tasksService)
+	default:
+		processErr = fmt.Errorf("unknown resource type: %s", payload.ResourceName)
+	}
+
+	// Update task result
+	endedAt := time.Now()
+	taskResult.EndedAt = &endedAt
+
+	if processErr != nil {
+		taskResult.Status = models.TaskStatusFailed
+		taskResult.Error = processErr.Error()
+		progress.FailedTasks++
+	} else {
+		taskResult.Status = models.TaskStatusCompleted
+		if str, ok := result.(string); ok {
+			taskResult.Result = str
+		} else {
+			resultJSON, _ := json.Marshal(result)
+			taskResult.Result = string(resultJSON)
+		}
+		progress.CompletedTasks++
+	}
+
+	progress.TaskResults[taskID] = taskResult
+	progress.LastUpdatedAt = time.Now()
+
+	return w.jobService.UpdateJobIntervalProgress(jobArgs.JobID, progress)
 }
 
 // ✅ ADD: Helper function to reschedule interval jobs

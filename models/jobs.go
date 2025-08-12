@@ -73,6 +73,10 @@ type Jobs struct {
 	UpdatedAt   time.Time  `gorm:"not null" db:"updated_at" json:"updated_at"`
 	Version     int64      `gorm:"not null" db:"version" json:"version"`
 	RiverJobID  int64      `gorm:"not null" db:"river_job_id" json:"river_job_id"`
+	// New fields for task recovery
+	CurrentIntervalID *string    `db:"current_interval_id" json:"current_interval_id"` // Track current interval execution
+	IntervalProgress  *string    `db:"interval_progress" json:"interval_progress"`     // JSON string storing progress
+	IntervalStartedAt *time.Time `db:"interval_started_at" json:"interval_started_at"` // When current interval started
 }
 
 type Tasks struct {
@@ -101,3 +105,33 @@ type CreateJobRequest struct {
 type CreateJobResponse struct {
 	JobID uuid.UUID `json:"job_id"`
 }
+
+// IntervalProgress represents the progress of a job interval
+type IntervalProgress struct {
+	IntervalID    string                 `json:"interval_id"`
+	TotalTasks    int                    `json:"total_tasks"`
+	CompletedTasks int                   `json:"completed_tasks"`
+	FailedTasks   int                    `json:"failed_tasks"`
+	TaskResults   map[string]TaskResult  `json:"task_results"`
+	Status        IntervalExecutionStatus `json:"status"`
+	StartedAt     time.Time              `json:"started_at"`
+	LastUpdatedAt time.Time              `json:"last_updated_at"`
+}
+
+type TaskResult struct {
+	TaskID    string      `json:"task_id"`
+	Status    TaskStatus  `json:"status"`
+	Result    string      `json:"result,omitempty"`
+	Error     string      `json:"error,omitempty"`
+	StartedAt time.Time   `json:"started_at"`
+	EndedAt   *time.Time  `json:"ended_at,omitempty"`
+}
+
+type IntervalExecutionStatus string
+
+const (
+	IntervalStatusRunning   IntervalExecutionStatus = "running"
+	IntervalStatusCompleted IntervalExecutionStatus = "completed"
+	IntervalStatusFailed    IntervalExecutionStatus = "failed"
+	IntervalStatusPaused    IntervalExecutionStatus = "paused"
+)

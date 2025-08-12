@@ -468,3 +468,143 @@ func (s *JobService) GetJobsForWorker() ([]models.Jobs, error) {
 	log.Println("number of valid jobs", len(jobs))
 	return jobs, nil
 }
+
+// RescheduleIntervalJob reschedules an interval job for the next run
+func (s *JobService) RescheduleIntervalJob(ctx context.Context, job *models.Jobs) error {
+	var intervalData models.IntervalData
+	if err := json.Unmarshal([]byte(*job.Interval), &intervalData); err != nil {
+		return err
+	}
+
+	schedule, err := cron.ParseStandard(*intervalData.Value)
+	if err != nil {
+		return err
+	}
+
+	now := time.Now()
+	nextRun := schedule.Next(now)
+	job.NextRunAt = &nextRun
+	job.UpdatedAt = time.Now()
+
+	// Schedule in River
+	err = GetRiverClientInstance(s.db).ScheduleJobInRiver(ctx, job)
+	if err != nil {
+		return err
+	}
+
+	// Update database
+	query := `UPDATE jobs SET next_run_at = $1, updated_at = $2, river_job_id = $3 WHERE id = $4 AND status = 'active' AND is_deleted = false`
+	err = s.db.GORM.Exec(query, job.NextRunAt, job.UpdatedAt, job.RiverJobID, job.ID).Error
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// GetJobIntervalProgress retrieves the current progress of a job interval
+func (s *JobService) GetJobIntervalProgress(jobID uuid.UUID) (*models.IntervalProgress, error) {
+	job := &models.Jobs{}
+	if err := s.db.GORM.Where("id = ? AND type = 'interval' AND status = 'active' AND is_deleted = false", jobID).First(job).Error; err != nil {
+		return nil, err
+	}
+
+	if job.IntervalProgress == nil {
+		return nil, nil
+	}
+
+	var progress models.IntervalProgress
+	if err := json.Unmarshal([]byte(*job.IntervalProgress), &progress); err != nil {
+		return nil, err
+	}
+
+	return &progress, nil
+}
+
+// UpdateJobIntervalProgress updates the progress of a job interval
+func (s *JobService) UpdateJobIntervalProgress(jobID uuid.UUID, progress *models.IntervalProgress) error {
+	progressJSON, err := json.Marshal(progress)
+	if err != nil {
+		return err
+	}
+
+	progressStr := string(progressJSON)
+	now := time.Now()
+
+	query := `UPDATE jobs SET 
+		interval_progress = $1, 
+		current_interval_id = $2, 
+		interval_started_at = $3,
+		updated_at = $4 
+		WHERE id = $5 AND type = 'interval' AND status = 'active' AND is_deleted = false`
+
+	return s.db.GORM.Exec(query, progressStr, progress.IntervalID, progress.StartedAt, now, jobID).Error
+}
+
+// StartNewInterval starts a new interval execution for a job
+func (s *JobService) StartNewInterval(jobID uuid.UUID, totalTasks int) (*models.IntervalProgress, error) {
+	intervalID := uuid.New().String()
+	now := time.Now()
+
+	progress := &models.IntervalProgress{
+		IntervalID:     intervalID,
+		TotalTasks:     totalTasks,
+		CompletedTasks: 0,
+		FailedTasks:    0,
+		TaskResults:    make(map[string]models.TaskResult),
+		Status:         models.IntervalStatusRunning,
+		StartedAt:      now,
+		LastUpdatedAt:  now,
+	}
+
+	if err := s.UpdateJobIntervalProgress(jobID, progress); err != nil {
+		return nil, err
+	}
+
+	return progress, nil
+}
+
+// CompleteInterval marks an interval as completed
+func (s *JobService) CompleteInterval(jobID uuid.UUID, intervalID string) error {
+	progress, err := s.GetJobIntervalProgress(jobID)
+	if err != nil {
+		return err
+	}
+
+	if progress == nil || progress.IntervalID != intervalID {
+		return fmt.Errorf("interval %s not found for job %s", intervalID, jobID)
+	}
+
+	progress.Status = models.IntervalStatusCompleted
+	progress.LastUpdatedAt = time.Now()
+
+	return s.UpdateJobIntervalProgress(jobID, progress)
+}
+
+// GetIncompleteIntervals retrieves all jobs with incomplete intervals for recovery
+func (s *JobService) GetIncompleteIntervals() ([]models.Jobs, error) {
+	var jobs []models.Jobs
+	query := `SELECT * FROM jobs 
+		WHERE type = 'interval' 
+		AND status = 'active' 
+		AND is_deleted = false 
+		AND current_interval_id IS NOT NULL 
+		AND interval_progress IS NOT NULL`
+
+	if err := s.db.GORM.Raw(query).Scan(&jobs).Error; err != nil {
+		return nil, err
+	}
+
+	// Filter jobs with running intervals
+	var incompleteJobs []models.Jobs
+	for _, job := range jobs {
+		progress, err := s.GetJobIntervalProgress(job.ID)
+		if err != nil {
+			continue
+		}
+		if progress != nil && progress.Status == models.IntervalStatusRunning {
+			incompleteJobs = append(incompleteJobs, job)
+		}
+	}
+
+	return incompleteJobs, nil
+}
