@@ -57,22 +57,23 @@ const (
 )
 
 type Jobs struct {
-	ID          uuid.UUID  `gorm:"primaryKey" db:"id" json:"id"`
-	Name        string     `gorm:"not null" db:"name" json:"name" default:"Job"`
-	UserID      uuid.UUID  `gorm:"not null" db:"user_id" json:"user_id"`
-	WorkspaceID uuid.UUID  `gorm:"not null" db:"workspace_id" json:"workspace_id"`
-	Payload     string     `gorm:"not null" db:"payload" json:"payload"`
-	Status      JobStatus  `gorm:"not null;default:active" db:"status" json:"status"`
-	Type        JobType    `gorm:"not null" db:"type" json:"type"`
-	Schedule    *string    `db:"schedule" json:"schedule"`
-	Interval    *string    `db:"interval" json:"interval"`
-	IsDeleted   bool       `gorm:"not null;default:false" db:"is_deleted" json:"is_deleted"`
-	NextRunAt   *time.Time `json:"next_run_at,omitempty" db:"next_run_at"`
-	LastRunAt   *time.Time `json:"last_run_at,omitempty" db:"last_run_at"`
-	CreatedAt   time.Time  `gorm:"not null" db:"created_at" json:"created_at"`
-	UpdatedAt   time.Time  `gorm:"not null" db:"updated_at" json:"updated_at"`
-	Version     int64      `gorm:"not null" db:"version" json:"version"`
-	RiverJobID  int64      `gorm:"not null" db:"river_job_id" json:"river_job_id"`
+	ID            uuid.UUID  `gorm:"primaryKey" db:"id" json:"id"`
+	Name          string     `gorm:"not null" db:"name" json:"name" default:"Job"`
+	UserID        uuid.UUID  `gorm:"not null" db:"user_id" json:"user_id"`
+	WorkspaceID   uuid.UUID  `gorm:"not null" db:"workspace_id" json:"workspace_id"`
+	Payload       string     `gorm:"not null" db:"payload" json:"payload"`
+	Status        JobStatus  `gorm:"not null;default:active" db:"status" json:"status"`
+	Type          JobType    `gorm:"not null" db:"type" json:"type"`
+	Schedule      *string    `db:"schedule" json:"schedule"`
+	Interval      *string    `db:"interval" json:"interval"`
+	IsDeleted     bool       `gorm:"not null;default:false" db:"is_deleted" json:"is_deleted"`
+	NextRunAt     *time.Time `json:"next_run_at,omitempty" db:"next_run_at"`
+	LastRunAt     *time.Time `json:"last_run_at,omitempty" db:"last_run_at"`
+	CurrentTaskID *uuid.UUID `json:"current_task_id,omitempty" db:"current_task_id"` // ✅ ADD: Track current task being executed
+	CreatedAt     time.Time  `gorm:"not null" db:"created_at" json:"created_at"`
+	UpdatedAt     time.Time  `gorm:"not null" db:"updated_at" json:"updated_at"`
+	Version       int64      `gorm:"not null" db:"version" json:"version"`
+	RiverJobID    int64      `gorm:"not null" db:"river_job_id" json:"river_job_id"`
 }
 
 type Tasks struct {

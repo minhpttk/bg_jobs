@@ -56,6 +56,12 @@ func (w *IntervalJobWorker) Work(ctx context.Context, job *river.Job[shared.Inte
 		return err
 	}
 
+	// ✅ ADD: Update job with current task ID
+	if err := w.jobService.UpdateCurrentTaskID(ctx, job.Args.JobID, &taskID); err != nil {
+		log.Printf("Failed to update current task ID for job %s: %v", job.Args.JobID, err)
+		// Continue execution even if update fails
+	}
+
 	processJobArgs := shared.ProcessJobArgs{
 		JobID:       job.Args.JobID,
 		TaskID:      taskID,
@@ -83,6 +89,12 @@ func (w *IntervalJobWorker) Work(ctx context.Context, job *river.Job[shared.Inte
 		if err := w.tasksService.UpdateTaskById(taskID, models.TaskStatusFailed); err != nil {
 			log.Printf("Failed to update task status to failed: %v", err)
 		}
+		
+		// ✅ ADD: Clear current task ID when job fails
+		if err := w.jobService.UpdateCurrentTaskID(ctx, job.Args.JobID, nil); err != nil {
+			log.Printf("Failed to clear current task ID for failed job %s: %v", job.Args.JobID, err)
+		}
+		
 		return processErr
 	}
 
@@ -103,6 +115,12 @@ func (w *IntervalJobWorker) Work(ctx context.Context, job *river.Job[shared.Inte
 	}
 
 	log.Printf("Job %s completed successfully", job.Args.JobID)
+	
+	// ✅ ADD: Clear current task ID when job completes successfully
+	if err := w.jobService.UpdateCurrentTaskID(ctx, job.Args.JobID, nil); err != nil {
+		log.Printf("Failed to clear current task ID for completed job %s: %v", job.Args.JobID, err)
+	}
+	
 	// ✅ ADD: Still reschedule even if job failed (for retry)
 	w.rescheduleJobIfNeeded(ctx, job.Args.JobID)
 	return nil
