@@ -77,6 +77,7 @@ type Jobs struct {
 	CurrentIntervalID *string    `db:"current_interval_id" json:"current_interval_id"` // Track current interval execution
 	IntervalProgress  *string    `db:"interval_progress" json:"interval_progress"`     // JSON string storing progress
 	IntervalStartedAt *time.Time `db:"interval_started_at" json:"interval_started_at"` // When current interval started
+	EnableRecovery    bool       `gorm:"not null;default:true" db:"enable_recovery" json:"enable_recovery"` // Enable/disable recovery mechanism
 }
 
 type Tasks struct {
@@ -93,12 +94,13 @@ type Tasks struct {
 
 // Create Job Request DTO
 type CreateJobRequest struct {
-	Name        string    `json:"name" binding:"required,min=1,max=100"`
-	WorkspaceID uuid.UUID `json:"workspace_id" binding:"required"`
-	Payload     string    `json:"payload" binding:"required,max=20000"`
-	Type        JobType   `json:"type" binding:"required,oneof=scheduled interval"`
-	Schedule    *string   `json:"schedule,omitempty"`
-	Interval    *string   `json:"interval,omitempty"`
+	Name           string    `json:"name" binding:"required,min=1,max=100"`
+	WorkspaceID    uuid.UUID `json:"workspace_id" binding:"required"`
+	Payload        string    `json:"payload" binding:"required,max=20000"`
+	Type           JobType   `json:"type" binding:"required,oneof=scheduled interval"`
+	Schedule       *string   `json:"schedule,omitempty"`
+	Interval       *string   `json:"interval,omitempty"`
+	EnableRecovery *bool     `json:"enable_recovery,omitempty"` // Optional: enable/disable recovery (default: true)
 }
 
 // Create Job Response DTO

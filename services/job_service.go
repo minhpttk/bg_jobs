@@ -32,19 +32,29 @@ func (s *JobService) CreateJob(ctx context.Context, req *models.CreateJobRequest
 		return nil, err
 	}
 
+	// Set default value for EnableRecovery if not provided
+	enableRecovery := true
+	if req.EnableRecovery != nil {
+		enableRecovery = *req.EnableRecovery
+	}
+
 	job := &models.Jobs{
-		ID:          uuid.New(),
-		Name:        req.Name,
-		UserID:      uuid.MustParse(userId),
-		WorkspaceID: req.WorkspaceID,
-		Payload:     req.Payload,
-		Type:        req.Type,
-		Schedule:    req.Schedule,
-		Interval:    req.Interval,
-		NextRunAt:   nil,
-		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
-		Version:     1,
+		ID:            uuid.New(),
+		Name:          req.Name,
+		UserID:        uuid.MustParse(userId),
+		WorkspaceID:   req.WorkspaceID,
+		Payload:       req.Payload,
+		Status:        models.JobStatusActive,
+		Type:          req.Type,
+		Schedule:      req.Schedule,
+		Interval:      req.Interval,
+		IsDeleted:     false,
+		NextRunAt:     nil,
+		CreatedAt:     time.Now(),
+		UpdatedAt:     time.Now(),
+		Version:       1,
+		RiverJobID:    0,
+		EnableRecovery: enableRecovery,
 	}
 
 	if err := s.calculateNextRunTime(job); err != nil {

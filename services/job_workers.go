@@ -50,61 +50,155 @@ func (w *IntervalJobWorker) Work(ctx context.Context, job *river.Job[shared.Inte
 		return err
 	}
 
+	// Check if recovery is enabled for this job
+	if w.shouldUseRecovery(job.Args.JobID) {
+		return w.executeWithRecovery(ctx, job.Args, payload)
+	}
+
+	// Original logic (backward compatible)
+	return w.executeOriginal(ctx, job.Args, payload)
+}
+
+// shouldUseRecovery checks if recovery mechanism should be used
+func (w *IntervalJobWorker) shouldUseRecovery(jobID uuid.UUID) bool {
+	// Check global recovery configuration first
+	recoveryConfig := config.LoadRecoveryConfig()
+	if !recoveryConfig.EnableRecovery {
+		return false
+	}
+	
+	// Get job to check if recovery is enabled for this specific job
+	job := &models.Jobs{}
+	if err := w.jobService.db.GORM.Where("id = ? AND type = 'interval' AND status = 'active' AND is_deleted = false", jobID).First(job).Error; err != nil {
+		log.Printf("Failed to get job for recovery check: %v", err)
+		// Default to global default if we can't determine
+		return recoveryConfig.DefaultRecoveryEnabled
+	}
+	
+	return job.EnableRecovery
+}
+
+// executeWithRecovery uses the new recovery mechanism
+func (w *IntervalJobWorker) executeWithRecovery(ctx context.Context, jobArgs shared.IntervalJobArgs, payload models.Payload) error {
 	// Check if there's an incomplete interval for this job
-	progress, err := w.jobService.GetJobIntervalProgress(job.Args.JobID)
+	progress, err := w.jobService.GetJobIntervalProgress(jobArgs.JobID)
 	if err != nil {
 		log.Printf("Failed to get job progress: %v", err)
-		return err
+		// Fallback to original logic
+		return w.executeOriginal(ctx, jobArgs, payload)
 	}
 
 	// If there's a running interval, schedule recovery instead of starting new one
 	if progress != nil && progress.Status == models.IntervalStatusRunning {
-		log.Printf("Found incomplete interval %s for job %s, scheduling recovery", progress.IntervalID, job.Args.JobID)
+		log.Printf("Found incomplete interval %s for job %s, scheduling recovery", progress.IntervalID, jobArgs.JobID)
 		
 		recoveryArgs := shared.TaskRecoveryArgs{
-			JobID:       job.Args.JobID,
+			JobID:       jobArgs.JobID,
 			IntervalID:  progress.IntervalID,
-			UserID:      job.Args.UserID,
-			WorkspaceID: job.Args.WorkspaceID,
-			Payload:     job.Args.Payload,
+			UserID:      jobArgs.UserID,
+			WorkspaceID: jobArgs.WorkspaceID,
+			Payload:     jobArgs.Payload,
 		}
 
 		if err := GetRiverClientInstance(w.jobService.db).ScheduleTaskRecovery(ctx, recoveryArgs); err != nil {
 			log.Printf("Failed to schedule recovery: %v", err)
-			return err
+			// Fallback to original logic
+			return w.executeOriginal(ctx, jobArgs, payload)
 		}
 
 		// Reschedule the job for next run
-		w.rescheduleJobIfNeeded(ctx, job.Args.JobID)
+		w.rescheduleJobIfNeeded(ctx, jobArgs.JobID)
 		return nil
 	}
 
 	// Start new interval execution
 	totalTasks := w.calculateTotalTasks(payload)
-	progress, err = w.jobService.StartNewInterval(job.Args.JobID, totalTasks)
+	progress, err = w.jobService.StartNewInterval(jobArgs.JobID, totalTasks)
 	if err != nil {
 		log.Printf("Failed to start new interval: %v", err)
-		return err
+		// Fallback to original logic
+		return w.executeOriginal(ctx, jobArgs, payload)
 	}
 
-	log.Printf("Started new interval %s for job %s with %d tasks", progress.IntervalID, job.Args.JobID, totalTasks)
+	log.Printf("Started new interval %s for job %s with %d tasks", progress.IntervalID, jobArgs.JobID, totalTasks)
 
 	// Execute tasks for this interval
-	if err := w.executeIntervalTasks(ctx, job.Args, progress); err != nil {
+	if err := w.executeIntervalTasks(ctx, jobArgs, progress); err != nil {
 		log.Printf("Failed to execute interval tasks: %v", err)
 		return err
 	}
 
 	// Mark interval as completed
-	if err := w.jobService.CompleteInterval(job.Args.JobID, progress.IntervalID); err != nil {
+	if err := w.jobService.CompleteInterval(jobArgs.JobID, progress.IntervalID); err != nil {
 		log.Printf("Failed to complete interval: %v", err)
 		return err
 	}
 
-	log.Printf("Job %s completed successfully", job.Args.JobID)
+	log.Printf("Job %s completed successfully", jobArgs.JobID)
 	
 	// Reschedule job for next run
-	w.rescheduleJobIfNeeded(ctx, job.Args.JobID)
+	w.rescheduleJobIfNeeded(ctx, jobArgs.JobID)
+	return nil
+}
+
+// executeOriginal is the original logic (backward compatible)
+func (w *IntervalJobWorker) executeOriginal(ctx context.Context, jobArgs shared.IntervalJobArgs, payload models.Payload) error {
+	// Create task
+	taskID, err := w.tasksService.CreateTask(jobArgs.JobID, jobArgs.Payload)
+	if err != nil {
+		log.Printf("Failed to create task: %v", err)
+		return err
+	}
+
+	processJobArgs := shared.ProcessJobArgs{
+		JobID:       jobArgs.JobID,
+		TaskID:      taskID,
+		UserID:      jobArgs.UserID,
+		WorkspaceID: jobArgs.WorkspaceID,
+		Payload:     jobArgs.Payload,
+	}
+
+	var processErr error
+	var result interface{}
+	switch payload.ResourceName {
+	case models.AIAgent: // ai_agent
+		log.Printf("Processing AI agent job %s", jobArgs.JobID)
+		result, processErr = processAIAgentJob(processJobArgs, w.tasksService)
+	case models.ClientAgent: // client_agent
+		log.Printf("Processing Client agent job %s", jobArgs.JobID)
+		result, processErr = processClientAgentJob(processJobArgs, w.tasksService)
+	default:
+		processErr = fmt.Errorf("unknown resource type: %s", payload.ResourceName)
+	}
+
+	if processErr != nil {
+		log.Printf("Job %s failed: %v", jobArgs.JobID, processErr)
+		// Update both task and job status to failed
+		if err := w.tasksService.UpdateTaskById(taskID, models.TaskStatusFailed); err != nil {
+			log.Printf("Failed to update task status to failed: %v", err)
+		}
+		return processErr
+	}
+
+	// Convert result to string for storage
+	var resultStr string
+	if str, ok := result.(string); ok {
+		resultStr = str
+	} else {
+		// Convert non-string results to JSON
+		resultJSON, err := json.Marshal(result)
+		if err != nil {
+			return fmt.Errorf("failed to marshal result: %v", err)
+		}
+		resultStr = string(resultJSON)
+	}
+	if err := w.tasksService.UpdateTaskResult(taskID, resultStr, models.TaskStatusCompleted); err != nil {
+		return err
+	}
+
+	log.Printf("Job %s completed successfully", jobArgs.JobID)
+	// ✅ ADD: Still reschedule even if job failed (for retry)
+	w.rescheduleJobIfNeeded(ctx, jobArgs.JobID)
 	return nil
 }
 
