@@ -453,6 +453,11 @@ func (s *JobService) UpdateJob(ctx context.Context, req *models.UpdateJobRequest
 		return nil, fmt.Errorf("failed to fetch job: %w", err)
 	}
 
+	// Check if job status allows updates
+	if job.Status == models.JobStatusProcessing {
+		return nil, fmt.Errorf("cannot update job while it is processing")
+	}
+
 	// Check if job has running tasks - don't allow updates if tasks are running
 	hasRunningTasks, err := s.HasRunningTasks(ctx, jobID)
 	if err != nil {

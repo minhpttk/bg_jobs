@@ -81,16 +81,23 @@ or
 or
 ```json
 {
+  "error": "cannot update job while it is processing"
+}
+```
+or
+```json
+{
   "error": "cannot update job while tasks are running"
 }
 ```
 
 ## Business Rules
 1. **Ownership**: Only the job owner can update their jobs
-2. **Running Tasks**: Jobs with running tasks cannot be updated
-3. **Prompt Only**: Only the prompt field can be updated; all other fields remain unchanged
-4. **Version Increment**: The job version is automatically incremented on update
-5. **Timestamp Update**: The `updated_at` timestamp is automatically updated
+2. **Job Status**: Jobs with status "processing" cannot be updated
+3. **Running Tasks**: Jobs with running tasks cannot be updated
+4. **Prompt Only**: Only the prompt field within the payload JSON can be updated; all other fields remain unchanged
+5. **Version Increment**: The job version is automatically incremented on update
+6. **Timestamp Update**: The `updated_at` timestamp is automatically updated
 
 ## Example Usage
 

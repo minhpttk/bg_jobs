@@ -12,6 +12,12 @@ import (
 type JobStatus string
 
 const (
+	JobStatusCreated     JobStatus = "created"
+	JobStatusProcessing  JobStatus = "processing"
+	JobStatusCompleted   JobStatus = "completed"
+	JobStatusFailed      JobStatus = "failed"
+	JobStatusCancelled   JobStatus = "cancelled"
+	// Keep backward compatibility
 	JobStatusActive   JobStatus = "active"
 	JobStatusInactive JobStatus = "inactive"
 	JobStatusDeleted  JobStatus = "deleted"
