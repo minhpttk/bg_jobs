@@ -3,9 +3,7 @@
 ## ✅ Đã hoàn thành
 
 ### 1. Test Scripts Created
-- ✅ `scripts/test_task_recovery_simple.go` - Main test script (simplified version)
-- ✅ `scripts/test_task_recovery.go` - Full test script with River integration
-- ✅ `scripts/test_config.go` - Test configuration
+- ✅ `scripts/test_task_recovery_simple.go` - Main test script
 - ✅ `scripts/test_task_recovery.ps1` - PowerShell script for Windows
 - ✅ `scripts/test_task_recovery.bat` - Batch script for Windows
 - ✅ `scripts/README.md` - Documentation
@@ -146,9 +144,7 @@ The test can be integrated into CI/CD pipelines:
 
 ```
 scripts/
-├── test_task_recovery_simple.go    # Main test script (simplified)
-├── test_task_recovery.go           # Full test script with River
-├── test_config.go                  # Test configuration
+├── test_task_recovery_simple.go    # Main test script
 ├── test_task_recovery.ps1          # PowerShell script
 ├── test_task_recovery.bat          # Batch script
 └── README.md                       # Documentation

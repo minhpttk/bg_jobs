@@ -4,8 +4,7 @@ This directory contains automated test scripts for testing the new task recovery
 
 ## Files
 
-- `test_task_recovery.go` - Main test script (Go)
-- `test_config.go` - Test configuration
+- `test_task_recovery_simple.go` - Main test script (Go)
 - `test_task_recovery.ps1` - PowerShell script for Windows
 - `test_task_recovery.bat` - Batch script for Windows
 - `README.md` - This file
@@ -34,7 +33,7 @@ scripts\test_task_recovery.bat
 #### Linux/Mac
 ```bash
 # Build and run directly
-go build -o bin/test_task_recovery ./scripts/test_task_recovery.go
+go build -o bin/test_task_recovery ./scripts/test_task_recovery_simple.go
 ./bin/test_task_recovery
 ```
 
@@ -54,29 +53,23 @@ The test script performs the following steps:
 
 ## Configuration
 
-You can customize the test by modifying `test_config.go`:
+You can customize the test by modifying the test script directly:
 
 ```go
-func DefaultTestConfig() *TestConfig {
-    return &TestConfig{
-        TestJobName:     "Test Recovery Job",
-        TestPrompt:      "Test recovery scenario - automated test",
-        TestAgentName:   "test_agent",
-        TestAgentURL:    "http://localhost:8080",
-        WaitTimeSeconds: 2,
-        AutoCleanup:     true,
-    }
+// Test settings in test_task_recovery_simple.go
+payload := models.Payload{
+    Prompt:       "Test recovery scenario - automated test",
+    ResourceName: models.AIAgent,
+    ResourceData: `{"agent_name": "test_agent", "agent_address": "http://localhost:8080"}`,
 }
 ```
 
 ### Configuration Options
 
-- `TestJobName` - Name of the test job
-- `TestPrompt` - Prompt for the AI agent
-- `TestAgentName` - Name of the test agent
-- `TestAgentURL` - URL of the test agent
-- `WaitTimeSeconds` - How long to wait for job processing
-- `AutoCleanup` - Whether to automatically clean up test data
+You can modify these values directly in the test script:
+- Job name and prompt
+- Agent configuration
+- Test data cleanup behavior
 
 ## Prerequisites
 
