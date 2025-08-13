@@ -10,6 +10,7 @@ help:
 	@echo "  migrate-remove-current-task-id - Remove current_task_id column"
 	@echo "  test-task-recovery            - Test task recovery functionality"
 	@echo "  test-auto-recovery            - Run automated task recovery test"
+	@echo "  test-mock-recovery            - Run mock task recovery test (no DB required)"
 	@echo "  build-api                     - Build API server"
 	@echo "  build-worker                  - Build worker"
 	@echo "  run-api                       - Run API server"
@@ -67,3 +68,10 @@ test-auto-recovery:
 	@bin\test_task_recovery.exe
 	@echo "Cleaning up..."
 	@if exist bin\test_task_recovery.exe del bin\test_task_recovery.exe
+
+# Mock task recovery test (no database required)
+test-mock-recovery:
+	@echo "Running Mock Task Recovery Test"
+	@echo "==============================="
+	@echo "Running mock test (no database required)..."
+	@go run scripts/test_task_recovery_mock.go
