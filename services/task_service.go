@@ -1,9 +1,11 @@
 package services
 
 import (
+	"context"
 	"fmt"
 	"gin-gorm-river-app/config"
 	"gin-gorm-river-app/models"
+	"gin-gorm-river-app/shared"
 	"log"
 	"time"
 
@@ -106,45 +108,44 @@ func (s *TasksService) RecoverRunningTasks() error {
 
 	log.Printf("Found %d running tasks to recover", len(runningTasks))
 
-	// Group tasks by job ID to efficiently clear current_task_id
-	jobIDs := make(map[uuid.UUID]bool)
-	
-	// Reset all running tasks to created status so they can be re-executed
-	for _, task := range runningTasks {
-		updateResult := s.db.GORM.Model(&models.Tasks{}).
-			Where("id = ?", task.ID).
-			Updates(map[string]interface{}{
-				"status":     models.TaskStatusCreated,
-				"result":     "", // Clear any partial results
-				"updated_at": time.Now(),
-			})
+	// Get River client to add recovery jobs
+	riverClient := GetRiverClientInstance(s.db).Client
+	if riverClient == nil {
+		return fmt.Errorf("river client not available for task recovery")
+	}
 
-		if updateResult.Error != nil {
-			log.Printf("Failed to recover task %s: %v", task.ID, updateResult.Error)
+	recoveredCount := 0
+	
+	// Add recovery jobs to riverqueue for each running task
+	for _, task := range runningTasks {
+		// Get job information to create recovery args
+		var job models.Jobs
+		if err := s.db.GORM.Where("id = ? AND is_deleted = false", task.JobID).First(&job).Error; err != nil {
+			log.Printf("Failed to get job info for task %s: %v", task.ID, err)
 			continue
 		}
 
-		jobIDs[task.JobID] = true
-		log.Printf("Recovered task %s (job: %s) from running to created status", task.ID, task.JobID)
-	}
-
-	// ✅ ADD: Clear current_task_id for all jobs that had running tasks
-	for jobID := range jobIDs {
-		clearResult := s.db.GORM.Model(&models.Jobs{}).
-			Where("id = ? AND status = 'active' AND is_deleted = false", jobID).
-			Updates(map[string]interface{}{
-				"current_task_id": nil,
-				"updated_at":      time.Now(),
-			})
-
-		if clearResult.Error != nil {
-			log.Printf("Failed to clear current_task_id for job %s: %v", jobID, clearResult.Error)
-		} else {
-			log.Printf("Cleared current_task_id for job %s", jobID)
+		// Create recovery job args with task ID
+		recoveryArgs := shared.IntervalJobArgs{
+			JobID:       task.JobID,
+			UserID:      job.UserID,
+			WorkspaceID: job.WorkspaceID,
+			Payload:     task.Payload,
+			TaskID:      &task.ID, // ✅ ADD: Pass task ID for recovery
 		}
+
+		// Add recovery job to riverqueue
+		_, err := riverClient.Insert(context.Background(), recoveryArgs, nil)
+		if err != nil {
+			log.Printf("Failed to add recovery job for task %s: %v", task.ID, err)
+			continue
+		}
+
+		recoveredCount++
+		log.Printf("Added recovery job for task %s (job: %s)", task.ID, task.JobID)
 	}
 
-	log.Printf("Task recovery completed. Recovered %d tasks from %d jobs", len(runningTasks), len(jobIDs))
+	log.Printf("Task recovery completed. Added %d recovery jobs to queue", recoveredCount)
 	return nil
 }
 
@@ -161,4 +162,29 @@ func (s *TasksService) GetIncompleteTasksByJobID(jobID uuid.UUID) ([]models.Task
 	}
 	
 	return tasks, nil
+}
+
+// ✅ ADD: Check if task is valid for recovery
+func (s *TasksService) IsTaskValid(taskID uuid.UUID) bool {
+	var task models.Tasks
+	result := s.db.GORM.Where("id = ? AND is_deleted = false", taskID).First(&task)
+	if result.Error != nil {
+		log.Printf("Task %s not found or invalid: %v", taskID, result.Error)
+		return false
+	}
+	
+	// Check if task status is valid for recovery
+	validStatuses := []models.TaskStatus{
+		models.TaskStatusCreated,
+		models.TaskStatusRunning,
+	}
+	
+	for _, status := range validStatuses {
+		if task.Status == status {
+			return true
+		}
+	}
+	
+	log.Printf("Task %s has invalid status for recovery: %s", taskID, task.Status)
+	return false
 }

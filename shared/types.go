@@ -13,10 +13,11 @@ type ProcessJobArgs struct {
 }
 
 type IntervalJobArgs struct {
-	JobID       uuid.UUID `json:"job_id"`
-	UserID      uuid.UUID `json:"user_id"`
-	WorkspaceID uuid.UUID `json:"workspace_id"`
-	Payload     string    `json:"payload"`
+	JobID       uuid.UUID  `json:"job_id"`
+	UserID      uuid.UUID  `json:"user_id"`
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	Payload     string     `json:"payload"`
+	TaskID      *uuid.UUID `json:"task_id,omitempty"` // ✅ ADD: Optional task ID for recovery
 }
 
 func (args IntervalJobArgs) Kind() string {

@@ -469,47 +469,4 @@ func (s *JobService) GetJobsForWorker() ([]models.Jobs, error) {
 	return jobs, nil
 }
 
-// ✅ ADD: Update current task ID for job
-func (s *JobService) UpdateCurrentTaskID(ctx context.Context, jobID uuid.UUID, taskID *uuid.UUID) error {
-	query := `UPDATE jobs SET current_task_id = $1, updated_at = $2 WHERE id = $3 AND status = 'active' AND is_deleted = false`
-	err := s.db.GORM.Exec(query, taskID, time.Now(), jobID).Error
-	if err != nil {
-		return fmt.Errorf("failed to update current task ID for job %s: %w", jobID, err)
-	}
-	return nil
-}
 
-// ✅ ADD: Check if job has running tasks
-func (s *JobService) HasRunningTasks(ctx context.Context, jobID uuid.UUID) (bool, error) {
-	var count int64
-	result := s.db.GORM.Model(&models.Tasks{}).
-		Where("job_id = ? AND status = ? AND is_deleted = false", jobID, models.TaskStatusRunning).
-		Count(&count)
-	
-	if result.Error != nil {
-		return false, fmt.Errorf("failed to check running tasks for job %s: %w", jobID, result.Error)
-	}
-	
-	return count > 0, nil
-}
-
-// ✅ ADD: Get current task information for a job
-func (s *JobService) GetCurrentTask(ctx context.Context, jobID uuid.UUID) (*models.Tasks, error) {
-	// First get the job to check current_task_id
-	job := &models.Jobs{}
-	if err := s.db.GORM.Where("id = ? AND status = 'active' AND is_deleted = false", jobID).First(job).Error; err != nil {
-		return nil, fmt.Errorf("job not found: %w", err)
-	}
-
-	if job.CurrentTaskID == nil {
-		return nil, nil // No current task
-	}
-
-	// Get the current task
-	task := &models.Tasks{}
-	if err := s.db.GORM.Where("id = ? AND is_deleted = false", job.CurrentTaskID).First(task).Error; err != nil {
-		return nil, fmt.Errorf("current task not found: %w", err)
-	}
-
-	return task, nil
-}

@@ -69,7 +69,7 @@ type Jobs struct {
 	IsDeleted     bool       `gorm:"not null;default:false" db:"is_deleted" json:"is_deleted"`
 	NextRunAt     *time.Time `json:"next_run_at,omitempty" db:"next_run_at"`
 	LastRunAt     *time.Time `json:"last_run_at,omitempty" db:"last_run_at"`
-	CurrentTaskID *uuid.UUID `json:"current_task_id,omitempty" db:"current_task_id"` // ✅ ADD: Track current task being executed
+
 	CreatedAt     time.Time  `gorm:"not null" db:"created_at" json:"created_at"`
 	UpdatedAt     time.Time  `gorm:"not null" db:"updated_at" json:"updated_at"`
 	Version       int64      `gorm:"not null" db:"version" json:"version"`

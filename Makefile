@@ -5,13 +5,14 @@
 # Default target
 help:
 	@echo "Available commands:"
-	@echo "  migrate-up          - Run database migrations"
-	@echo "  migrate-down        - Rollback database migrations"
-	@echo "  test-task-recovery  - Test task recovery functionality"
-	@echo "  build-api           - Build API server"
-	@echo "  build-worker        - Build worker"
-	@echo "  run-api             - Run API server"
-	@echo "  run-worker          - Run worker"
+	@echo "  migrate-up                    - Run database migrations"
+	@echo "  migrate-down                  - Rollback database migrations"
+	@echo "  migrate-remove-current-task-id - Remove current_task_id column"
+	@echo "  test-task-recovery            - Test task recovery functionality"
+	@echo "  build-api                     - Build API server"
+	@echo "  build-worker                  - Build worker"
+	@echo "  run-api                       - Run API server"
+	@echo "  run-worker                    - Run worker"
 
 # Database migrations
 migrate-up:
@@ -21,6 +22,11 @@ migrate-up:
 migrate-down:
 	@echo "Rolling back database migrations..."
 	go run cmd/migrate/main.go -action=down
+
+# Remove current_task_id column migration
+migrate-remove-current-task-id:
+	@echo "Removing current_task_id column from jobs table..."
+	psql $(DATABASE_URL) -f migrations/003_remove_current_task_id_from_jobs.sql
 
 # Build applications
 build-api:

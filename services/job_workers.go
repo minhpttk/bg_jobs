@@ -49,17 +49,31 @@ func (w *IntervalJobWorker) Work(ctx context.Context, job *river.Job[shared.Inte
 		return err
 	}
 
-	// Create task
-	taskID, err := w.tasksService.CreateTask(job.Args.JobID, job.Args.Payload)
-	if err != nil {
-		log.Printf("Failed to create task: %v", err)
-		return err
-	}
-
-	// ✅ ADD: Update job with current task ID
-	if err := w.jobService.UpdateCurrentTaskID(ctx, job.Args.JobID, &taskID); err != nil {
-		log.Printf("Failed to update current task ID for job %s: %v", job.Args.JobID, err)
-		// Continue execution even if update fails
+	// ✅ MODIFY: Handle task creation or recovery
+	var taskID uuid.UUID
+	if job.Args.TaskID != nil {
+		// This is a recovery job with existing task
+		taskID = *job.Args.TaskID
+		log.Printf("Recovery job: using existing task %s for job %s", taskID, job.Args.JobID)
+		
+		// Verify task exists and is in valid state
+		if !w.tasksService.IsTaskValid(taskID) {
+			return fmt.Errorf("invalid task for recovery: %s", taskID)
+		}
+		
+		// Reset task status to created for re-execution
+		if err := w.tasksService.UpdateTaskById(taskID, models.TaskStatusCreated); err != nil {
+			log.Printf("Failed to reset task status for recovery: %v", err)
+			return err
+		}
+	} else {
+		// Create new task as usual
+		taskID, err = w.tasksService.CreateTask(job.Args.JobID, job.Args.Payload)
+		if err != nil {
+			log.Printf("Failed to create task: %v", err)
+			return err
+		}
+		log.Printf("New job: created task %s for job %s", taskID, job.Args.JobID)
 	}
 
 	processJobArgs := shared.ProcessJobArgs{
@@ -85,14 +99,9 @@ func (w *IntervalJobWorker) Work(ctx context.Context, job *river.Job[shared.Inte
 
 	if processErr != nil {
 		log.Printf("Job %s failed: %v", job.Args.JobID, processErr)
-		// Update both task and job status to failed
+		// Update task status to failed
 		if err := w.tasksService.UpdateTaskById(taskID, models.TaskStatusFailed); err != nil {
 			log.Printf("Failed to update task status to failed: %v", err)
-		}
-		
-		// ✅ ADD: Clear current task ID when job fails
-		if err := w.jobService.UpdateCurrentTaskID(ctx, job.Args.JobID, nil); err != nil {
-			log.Printf("Failed to clear current task ID for failed job %s: %v", job.Args.JobID, err)
 		}
 		
 		return processErr
@@ -115,11 +124,6 @@ func (w *IntervalJobWorker) Work(ctx context.Context, job *river.Job[shared.Inte
 	}
 
 	log.Printf("Job %s completed successfully", job.Args.JobID)
-	
-	// ✅ ADD: Clear current task ID when job completes successfully
-	if err := w.jobService.UpdateCurrentTaskID(ctx, job.Args.JobID, nil); err != nil {
-		log.Printf("Failed to clear current task ID for completed job %s: %v", job.Args.JobID, err)
-	}
 	
 	// ✅ ADD: Still reschedule even if job failed (for retry)
 	w.rescheduleJobIfNeeded(ctx, job.Args.JobID)

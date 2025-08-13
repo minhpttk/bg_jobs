@@ -1,59 +1,52 @@
-# Task Recovery Implementation Summary
+# Task Recovery Implementation Summary - NEW APPROACH
 
-## ✅ Đã hoàn thành
+## ✅ Đã hoàn thành - Cách tiếp cận mới
 
 ### 1. Database Schema Changes
-- ✅ Thêm column `current_task_id` vào bảng `jobs` (GORM auto-migration)
-- ✅ Tạo index cho performance (GORM auto-migration)
-- ✅ Không cần SQL migration thủ công
+- ✅ Remove column `current_task_id` khỏi bảng `jobs` (Migration 003)
+- ✅ Simplified schema - không cần track current task trong jobs table
 
 ### 2. Models
-- ✅ Thêm field `CurrentTaskID` vào struct `Jobs`
+- ✅ Remove field `CurrentTaskID` khỏi struct `Jobs`
+- ✅ Thêm field `TaskID` optional vào `IntervalJobArgs`
 
 ### 3. Services
-- ✅ `TasksService.RecoverRunningTasks()`: Khôi phục task đang running
-- ✅ `TasksService.GetIncompleteTasksByJobID()`: Lấy task chưa hoàn thành
-- ✅ `JobService.UpdateCurrentTaskID()`: Cập nhật task hiện tại
-- ✅ `JobService.HasRunningTasks()`: Kiểm tra job có task đang chạy
-- ✅ `JobService.GetCurrentTask()`: Lấy thông tin task đang chạy
+- ✅ `TasksService.RecoverRunningTasks()`: Tạo recovery jobs trong riverqueue
+- ✅ `TasksService.IsTaskValid()`: Kiểm tra task có hợp lệ cho recovery
+- ✅ Remove các method liên quan đến `CurrentTaskID` trong `JobService`
 
 ### 4. Workers
-- ✅ Cập nhật `IntervalJobWorker.Work()` để theo dõi `current_task_id`
-- ✅ Clear `current_task_id` khi task hoàn thành/thất bại
+- ✅ Cập nhật `IntervalJobWorker.Work()` để handle recovery với task ID
+- ✅ Logic phân biệt giữa new job và recovery job
+- ✅ Không cần track `current_task_id` nữa
 
 ### 5. Application Startup
-- ✅ Thêm task recovery vào `cmd/worker/main.go`
-- ✅ Chạy task recovery trước job recovery
-- ✅ Logging chi tiết cho debugging
+- ✅ Task recovery vẫn chạy trong `cmd/worker/main.go`
+- ✅ Recovery process tạo jobs trong riverqueue thay vì reset trực tiếp
 
 ### 6. Migration
-- ✅ GORM auto-migration tự động tạo column
-- ✅ File SQL migration chỉ để reference
+- ✅ Migration 003 để remove `current_task_id` column
+- ✅ Makefile command `migrate-remove-current-task-id`
 
-### 7. Build & Test
-- ✅ Makefile với commands cho Windows/Linux/Mac
-- ✅ Documentation chi tiết
-
-## 🔄 Workflow
+## 🔄 Workflow mới
 
 ### Khi server restart:
-1. **Task Recovery**: Tìm task status `running` → reset về `created`
-2. **Clear Current Task ID**: Clear `current_task_id` của job có task running
-3. **Job Recovery**: Tiếp tục logic job recovery hiện tại
+1. **Task Recovery**: Tìm task status `running` → tạo recovery job trong riverqueue với task ID
+2. **Job Recovery**: Tiếp tục logic job recovery hiện tại
 
 ### Khi job chạy:
-1. **Start Task**: Set `current_task_id` = task ID
-2. **Execute Task**: Thực hiện task
-3. **Complete Task**: Clear `current_task_id` = null
+1. **Check TaskID**: Nếu có TaskID → dùng task hiện có, reset status về created
+2. **No TaskID**: Tạo task mới như bình thường
+3. **Execute Task**: Thực hiện task
+4. **Complete Task**: Không cần clear current_task_id
 
 ## 🎯 Kết quả
 
-- ✅ **Không ảnh hưởng logic cũ**: Task recovery hoạt động độc lập
-- ✅ **Giải quyết vấn đề**: Task không bị miss khi server restart
-- ✅ **Performance**: Chỉ chạy 1 lần khi startup
-- ✅ **Backward Compatible**: Tương thích với dữ liệu cũ
-- ✅ **Logging**: Chi tiết để debug và monitor
-- ✅ **GORM Auto-migration**: Không cần SQL migration thủ công
+- ✅ **Simplified schema**: Không cần current_task_id column
+- ✅ **Better queue integration**: Recovery sử dụng riverqueue
+- ✅ **More robust**: Handle edge cases tốt hơn
+- ✅ **Scalable**: Có thể handle multiple tasks per job
+- ✅ **Consistent architecture**: Tất cả đều qua riverqueue
 
 ## 🧪 Testing
 
@@ -62,8 +55,8 @@
 # Xem tất cả commands
 make help
 
-# Chạy migration
-make migrate-up
+# Chạy migration để remove current_task_id
+make migrate-remove-current-task-id
 
 # Test task recovery
 make test-task-recovery
@@ -76,26 +69,27 @@ make run-worker
 ## 📝 Files Modified
 
 ```
-models/jobs.go                                    # +1 field
-services/task_service.go                          # +2 methods
-services/job_service.go                           # +3 methods  
-services/job_workers.go                           # +3 updates
-cmd/worker/main.go                                # +1 function
-migrations/002_add_current_task_id_to_jobs.sql   # +1 file (reference only)
-Makefile                                          # +1 file
-docs/TASK_RECOVERY.md                             # +1 file
+shared/types.go                                    # +1 field TaskID
+services/task_service.go                          # +1 method IsTaskValid, modify RecoverRunningTasks
+services/job_workers.go                           # modify Work() method
+services/job_service.go                           # -3 methods (remove CurrentTaskID methods)
+models/jobs.go                                    # -1 field CurrentTaskID
+cmd/worker/main.go                                # no changes needed
+migrations/003_remove_current_task_id_from_jobs.sql   # +1 file
+Makefile                                          # +1 command
+docs/NEW_TASK_RECOVERY_APPROACH.md               # +1 file
 ```
 
 ## 🚀 Deployment
 
 1. Deploy code changes
-2. Run migration: `make migrate-up`
+2. Run migration: `make migrate-remove-current-task-id`
 3. Restart worker service: `make run-worker`
 4. Monitor logs để verify task recovery hoạt động
 
 ## 💡 Lưu ý quan trọng
 
-- **GORM Auto-migration**: Column `current_task_id` sẽ tự động được tạo khi chạy `make migrate-up`
-- **Không cần SQL migration thủ công**: GORM tự động handle schema changes
-- **Makefile cross-platform**: Hoạt động trên Windows, Linux, Mac
-- **Backward compatible**: Tương thích với dữ liệu cũ
+- **Migration required**: Phải chạy migration để remove current_task_id column
+- **Backward compatible**: Tương thích với dữ liệu cũ (sau khi migration)
+- **Better architecture**: Sử dụng queue-based recovery thay vì direct database updates
+- **More robust**: Handle edge cases và error scenarios tốt hơn
