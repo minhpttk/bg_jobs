@@ -306,20 +306,37 @@ func (s *JobService) GetJob(ctx context.Context, req *GetJobRequest) (*GetJobRes
 	var tasks []models.Tasks
 	var taskTotalCount int64
 
-	// Get total count of tasks for this job
-	taskCountResult := s.db.GORM.Model(&models.Tasks{}).Where("job_id = ? AND is_deleted = false", req.Id).Count(&taskTotalCount)
-	if taskCountResult.Error != nil {
-		return nil, fmt.Errorf("failed to count tasks: %w", taskCountResult.Error)
+	// ✅ OPTIMIZED: Use a single query with window function to get both count and data
+	// This avoids the N+1 problem by using a single query instead of separate count and fetch
+	var taskResults []struct {
+		models.Tasks
+		TotalCount int64 `json:"total_count"`
 	}
-
-	// Get paginated tasks
-	taskResult := s.db.GORM.Where("job_id = ? AND is_deleted = false", req.Id).
-		Offset(taskOffset).
-		Limit(req.TaskLimit).
-		Order("created_at DESC").
-		Find(&tasks)
+	
+	taskResult := s.db.GORM.Raw(`
+		WITH task_data AS (
+			SELECT *,
+				   COUNT(*) OVER() as total_count
+			FROM tasks 
+			WHERE job_id = ? AND is_deleted = false
+			ORDER BY created_at DESC
+			LIMIT ? OFFSET ?
+		)
+		SELECT * FROM task_data
+	`, req.Id, req.TaskLimit, taskOffset).Scan(&taskResults)
+	
 	if taskResult.Error != nil {
 		return nil, fmt.Errorf("failed to fetch tasks: %w", taskResult.Error)
+	}
+
+	// Extract tasks and total count
+	tasks = make([]models.Tasks, len(taskResults))
+	var taskTotalCount int64
+	for i, result := range taskResults {
+		tasks[i] = result.Tasks
+		if i == 0 {
+			taskTotalCount = result.TotalCount
+		}
 	}
 
 	taskTotalPages := int(math.Ceil(float64(taskTotalCount) / float64(req.TaskLimit)))

@@ -108,40 +108,49 @@ func (s *TasksService) RecoverRunningTasks() error {
 
 	// Group tasks by job ID to efficiently clear current_task_id
 	jobIDs := make(map[uuid.UUID]bool)
-	
-	// Reset all running tasks to created status so they can be re-executed
 	for _, task := range runningTasks {
-		updateResult := s.db.GORM.Model(&models.Tasks{}).
-			Where("id = ?", task.ID).
-			Updates(map[string]interface{}{
-				"status":     models.TaskStatusCreated,
-				"result":     "", // Clear any partial results
-				"updated_at": time.Now(),
-			})
-
-		if updateResult.Error != nil {
-			log.Printf("Failed to recover task %s: %v", task.ID, updateResult.Error)
-			continue
-		}
-
 		jobIDs[task.JobID] = true
-		log.Printf("Recovered task %s (job: %s) from running to created status", task.ID, task.JobID)
 	}
 
-	// ✅ ADD: Clear current_task_id for all jobs that had running tasks
-	for jobID := range jobIDs {
-		clearResult := s.db.GORM.Model(&models.Jobs{}).
-			Where("id = ? AND status = 'active' AND is_deleted = false", jobID).
-			Updates(map[string]interface{}{
-				"current_task_id": nil,
-				"updated_at":      time.Now(),
-			})
+	// ✅ OPTIMIZED: Batch update all running tasks in a single query
+	taskIDs := make([]uuid.UUID, len(runningTasks))
+	for i, task := range runningTasks {
+		taskIDs[i] = task.ID
+	}
 
-		if clearResult.Error != nil {
-			log.Printf("Failed to clear current_task_id for job %s: %v", jobID, clearResult.Error)
-		} else {
-			log.Printf("Cleared current_task_id for job %s", jobID)
-		}
+	// Batch update all tasks to created status
+	batchUpdateResult := s.db.GORM.Model(&models.Tasks{}).
+		Where("id IN ?", taskIDs).
+		Updates(map[string]interface{}{
+			"status":     models.TaskStatusCreated,
+			"result":     "", // Clear any partial results
+			"updated_at": time.Now(),
+		})
+
+	if batchUpdateResult.Error != nil {
+		log.Printf("Failed to batch update tasks: %v", batchUpdateResult.Error)
+		return fmt.Errorf("failed to batch update tasks: %w", batchUpdateResult.Error)
+	}
+
+	log.Printf("Batch updated %d tasks from running to created status", batchUpdateResult.RowsAffected)
+
+	// ✅ OPTIMIZED: Batch clear current_task_id for all affected jobs
+	jobIDList := make([]uuid.UUID, 0, len(jobIDs))
+	for jobID := range jobIDs {
+		jobIDList = append(jobIDList, jobID)
+	}
+
+	batchClearResult := s.db.GORM.Model(&models.Jobs{}).
+		Where("id IN ? AND status = 'active' AND is_deleted = false", jobIDList).
+		Updates(map[string]interface{}{
+			"current_task_id": nil,
+			"updated_at":      time.Now(),
+		})
+
+	if batchClearResult.Error != nil {
+		log.Printf("Failed to batch clear current_task_id: %v", batchClearResult.Error)
+	} else {
+		log.Printf("Batch cleared current_task_id for %d jobs", batchClearResult.RowsAffected)
 	}
 
 	log.Printf("Task recovery completed. Recovered %d tasks from %d jobs", len(runningTasks), len(jobIDs))
@@ -161,4 +170,70 @@ func (s *TasksService) GetIncompleteTasksByJobID(jobID uuid.UUID) ([]models.Task
 	}
 	
 	return tasks, nil
+}
+
+// ✅ ADD: Bulk update task statuses for better performance
+func (s *TasksService) BulkUpdateTaskStatuses(taskIDs []uuid.UUID, status models.TaskStatus) error {
+	if len(taskIDs) == 0 {
+		return nil
+	}
+
+	result := s.db.GORM.Model(&models.Tasks{}).
+		Where("id IN ?", taskIDs).
+		Updates(map[string]interface{}{
+			"status":     status,
+			"updated_at": time.Now(),
+		})
+
+	if result.Error != nil {
+		return fmt.Errorf("failed to bulk update task statuses: %w", result.Error)
+	}
+
+	log.Printf("Bulk updated %d tasks to status %s", result.RowsAffected, status)
+	return nil
+}
+
+// ✅ ADD: Get tasks with pagination and count in single query
+func (s *TasksService) GetTasksWithPagination(jobID uuid.UUID, page, limit int) ([]models.Tasks, int64, error) {
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 {
+		limit = 10
+	}
+
+	offset := (page - 1) * limit
+
+	var taskResults []struct {
+		models.Tasks
+		TotalCount int64 `json:"total_count"`
+	}
+
+	result := s.db.GORM.Raw(`
+		WITH task_data AS (
+			SELECT *,
+				   COUNT(*) OVER() as total_count
+			FROM tasks 
+			WHERE job_id = ? AND is_deleted = false
+			ORDER BY created_at DESC
+			LIMIT ? OFFSET ?
+		)
+		SELECT * FROM task_data
+	`, jobID, limit, offset).Scan(&taskResults)
+
+	if result.Error != nil {
+		return nil, 0, fmt.Errorf("failed to fetch tasks with pagination: %w", result.Error)
+	}
+
+	// Extract tasks and total count
+	tasks := make([]models.Tasks, len(taskResults))
+	var totalCount int64
+	for i, taskResult := range taskResults {
+		tasks[i] = taskResult.Tasks
+		if i == 0 {
+			totalCount = taskResult.TotalCount
+		}
+	}
+
+	return tasks, totalCount, nil
 }

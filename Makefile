@@ -50,3 +50,12 @@ test-task-recovery:
 	@echo "   (This will start the worker and you can manually test task recovery)"
 	@echo "   Press Ctrl+C to stop the worker"
 	@$(MAKE) run-worker
+
+# Test performance optimizations
+test-performance:
+	@echo "Testing Performance Optimizations"
+	@echo "================================="
+	@echo "1. Running migrations..."
+	@$(MAKE) migrate-up
+	@echo "2. Running performance tests..."
+	@go run scripts/test_performance.go
