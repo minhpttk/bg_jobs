@@ -102,3 +102,8 @@ type CreateJobRequest struct {
 type CreateJobResponse struct {
 	JobID uuid.UUID `json:"job_id"`
 }
+
+// Update Job Request DTO - only allows updating prompt
+type UpdateJobRequest struct {
+	Prompt string `json:"prompt" binding:"required,max=20000"`
+}

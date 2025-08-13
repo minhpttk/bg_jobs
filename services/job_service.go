@@ -442,6 +442,53 @@ func (s *JobService) RescheduleIntervalJob(ctx context.Context, job *models.Jobs
 	return nil
 }
 
+// UpdateJob updates only the prompt of a job
+func (s *JobService) UpdateJob(ctx context.Context, req *models.UpdateJobRequest, jobID uuid.UUID, userID uuid.UUID) (*models.Jobs, error) {
+	// First, get the existing job to validate ownership and current state
+	var job models.Jobs
+	if err := s.db.GORM.Where("id = ? AND user_id = ? AND is_deleted = false", jobID, userID).First(&job).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("job not found or access denied")
+		}
+		return nil, fmt.Errorf("failed to fetch job: %w", err)
+	}
+
+	// Check if job has running tasks - don't allow updates if tasks are running
+	hasRunningTasks, err := s.HasRunningTasks(ctx, jobID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check job status: %w", err)
+	}
+	if hasRunningTasks {
+		return nil, fmt.Errorf("cannot update job while tasks are running")
+	}
+
+	// Parse the existing payload to update only the prompt
+	var payload models.Payload
+	if err := json.Unmarshal([]byte(job.Payload), &payload); err != nil {
+		return nil, fmt.Errorf("failed to parse existing payload: %w", err)
+	}
+
+	// Update only the prompt
+	payload.Prompt = req.Prompt
+
+	// Marshal the updated payload back to JSON
+	updatedPayload, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal updated payload: %w", err)
+	}
+
+	// Update the job in the database
+	job.Payload = string(updatedPayload)
+	job.UpdatedAt = time.Now()
+	job.Version++
+
+	if err := s.db.GORM.Save(&job).Error; err != nil {
+		return nil, fmt.Errorf("failed to update job: %w", err)
+	}
+
+	return &job, nil
+}
+
 // Pause/Resume jobs
 func (s *JobService) PauseJob(ctx context.Context, id uuid.UUID, userId uuid.UUID) error {
 	query := `UPDATE jobs SET status = 'inactive', updated_at = $1 WHERE id = $2 AND user_id = $3`
