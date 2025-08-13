@@ -9,6 +9,7 @@ help:
 	@echo "  migrate-down                  - Rollback database migrations"
 	@echo "  migrate-remove-current-task-id - Remove current_task_id column"
 	@echo "  test-task-recovery            - Test task recovery functionality"
+	@echo "  test-auto-recovery            - Run automated task recovery test"
 	@echo "  build-api                     - Build API server"
 	@echo "  build-worker                  - Build worker"
 	@echo "  run-api                       - Run API server"
@@ -56,3 +57,13 @@ test-task-recovery:
 	@echo "   (This will start the worker and you can manually test task recovery)"
 	@echo "   Press Ctrl+C to stop the worker"
 	@$(MAKE) run-worker
+
+# Automated task recovery test
+test-auto-recovery:
+	@echo "Running Automated Task Recovery Test"
+	@echo "===================================="
+	@echo "Building and running test script..."
+	@go build -o bin/test_task_recovery.exe scripts/test_task_recovery_simple.go
+	@bin\test_task_recovery.exe
+	@echo "Cleaning up..."
+	@if exist bin\test_task_recovery.exe del bin\test_task_recovery.exe
