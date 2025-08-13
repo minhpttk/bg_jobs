@@ -102,3 +102,19 @@ type CreateJobRequest struct {
 type CreateJobResponse struct {
 	JobID uuid.UUID `json:"job_id"`
 }
+
+// Update Job Request DTO
+type UpdateJobRequest struct {
+	Name    *string `json:"name,omitempty" binding:"omitempty,min=1,max=100"`
+	Payload *string `json:"payload,omitempty" binding:"omitempty,max=20000"`
+	Type    *JobType `json:"type,omitempty" binding:"omitempty,oneof=scheduled interval"`
+	Schedule *string `json:"schedule,omitempty"`
+	Interval *string `json:"interval,omitempty"`
+}
+
+// Update Job Response DTO
+type UpdateJobResponse struct {
+	JobID     uuid.UUID `json:"job_id"`
+	IsNewJob  bool      `json:"is_new_job"`
+	Message   string    `json:"message"`
+}

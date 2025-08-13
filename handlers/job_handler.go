@@ -188,3 +188,37 @@ func (h *JobHandler) ResumeJob(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"message": "Job resumed successfully"})
 }
+
+func (h *JobHandler) UpdateJob(c *gin.Context) {
+	jobID := c.Param("id")
+	if jobID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Job ID is required"})
+		return
+	}
+
+	userID := c.GetString("user_id")
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	var req models.UpdateJobRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Check if at least one field is provided for update
+	if req.Name == nil && req.Payload == nil && req.Type == nil && req.Schedule == nil && req.Interval == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "At least one field must be provided for update"})
+		return
+	}
+
+	resp, err := h.jobService.UpdateJob(c, jobID, &req, userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, resp)
+}

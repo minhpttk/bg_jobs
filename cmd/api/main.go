@@ -126,6 +126,7 @@ func NewRouter(server *gin.Engine, db *config.Database) {
 	jobRouter.POST("", jobHandler.CreateJob)
 	jobRouter.GET("", jobHandler.GetJobs)
 	jobRouter.GET("/:id", jobHandler.GetJob)
+	jobRouter.PUT("/:id", jobHandler.UpdateJob)
 	jobRouter.PATCH("/:id/pause", CustomizeRateLimiter(1, 5), jobHandler.PauseJob)
 	jobRouter.PATCH("/:id/resume", CustomizeRateLimiter(1, 5), jobHandler.ResumeJob)
 	jobRouter.DELETE("/:id", jobHandler.DeleteJob)

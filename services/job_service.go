@@ -469,6 +469,167 @@ func (s *JobService) GetJobsForWorker() ([]models.Jobs, error) {
 	return jobs, nil
 }
 
+// UpdateJob updates a job based on the request
+// If only prompt is updated, it updates the existing job
+// If time or target is updated, it creates a new job and deletes the old one
+func (s *JobService) UpdateJob(ctx context.Context, jobID string, req *models.UpdateJobRequest, userID string) (*models.UpdateJobResponse, error) {
+	// Parse job ID
+	jobUUID, err := uuid.Parse(jobID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid job ID: %w", err)
+	}
+
+	// Get existing job
+	existingJob := &models.Jobs{}
+	if err := s.db.GORM.Where("id = ? AND user_id = ? AND is_deleted = false", jobUUID, userID).First(existingJob).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("job not found")
+		}
+		return nil, fmt.Errorf("failed to get job: %w", err)
+	}
+
+	// Check if we need to create a new job (time or target changes)
+	needsNewJob := false
+	
+	// Check if type is being changed
+	if req.Type != nil && *req.Type != existingJob.Type {
+		needsNewJob = true
+	}
+	
+	// Check if schedule is being changed
+	if req.Schedule != nil && (existingJob.Schedule == nil || *req.Schedule != *existingJob.Schedule) {
+		needsNewJob = true
+	}
+	
+	// Check if interval is being changed
+	if req.Interval != nil && (existingJob.Interval == nil || *req.Interval != *existingJob.Interval) {
+		needsNewJob = true
+	}
+
+	if needsNewJob {
+		// Create new job with updated parameters
+		newJob := &models.Jobs{
+			ID:          uuid.New(),
+			Name:        existingJob.Name,
+			UserID:      existingJob.UserID,
+			WorkspaceID: existingJob.WorkspaceID,
+			Payload:     existingJob.Payload,
+			Type:        existingJob.Type,
+			Schedule:    existingJob.Schedule,
+			Interval:    existingJob.Interval,
+			NextRunAt:   nil,
+			CreatedAt:   time.Now(),
+			UpdatedAt:   time.Now(),
+			Version:     1,
+		}
+
+		// Update fields from request
+		if req.Name != nil {
+			newJob.Name = *req.Name
+		}
+		if req.Payload != nil {
+			newJob.Payload = *req.Payload
+		}
+		if req.Type != nil {
+			newJob.Type = *req.Type
+		}
+		if req.Schedule != nil {
+			newJob.Schedule = req.Schedule
+		}
+		if req.Interval != nil {
+			newJob.Interval = req.Interval
+		}
+
+		// Validate the new job configuration
+		createReq := &models.CreateJobRequest{
+			Name:        newJob.Name,
+			WorkspaceID: newJob.WorkspaceID,
+			Payload:     newJob.Payload,
+			Type:        newJob.Type,
+			Schedule:    newJob.Schedule,
+			Interval:    newJob.Interval,
+		}
+		if err := s.validateJobRequest(createReq); err != nil {
+			return nil, fmt.Errorf("invalid job configuration: %w", err)
+		}
+
+		// Calculate next run time for new job
+		if err := s.calculateNextRunTime(newJob); err != nil {
+			return nil, fmt.Errorf("failed to calculate next run time: %w", err)
+		}
+
+		// Begin transaction
+		tx := s.db.GORM.Begin()
+		if tx.Error != nil {
+			return nil, tx.Error
+		}
+
+		defer func() {
+			if r := recover(); r != nil {
+				tx.Rollback()
+			}
+		}()
+
+		// Delete old job (soft delete)
+		if err := tx.Model(&models.Jobs{}).Where("id = ?", existingJob.ID).Update("is_deleted", true).Error; err != nil {
+			tx.Rollback()
+			return nil, fmt.Errorf("failed to delete old job: %w", err)
+		}
+
+		// Create new job
+		if err := tx.Create(newJob).Error; err != nil {
+			tx.Rollback()
+			return nil, fmt.Errorf("failed to create new job: %w", err)
+		}
+
+		// Schedule new job in River
+		if err := GetRiverClientInstance(s.db).ScheduleJobInRiver(ctx, newJob); err != nil {
+			tx.Rollback()
+			return nil, fmt.Errorf("failed to schedule new job: %w", err)
+		}
+
+		// Update job with River job ID
+		query := `UPDATE jobs SET river_job_id = $1 WHERE id = $2 AND status = 'active' AND is_deleted = false`
+		if err := tx.Exec(query, newJob.RiverJobID, newJob.ID).Error; err != nil {
+			tx.Rollback()
+			return nil, fmt.Errorf("failed to update river job ID: %w", err)
+		}
+
+		// Commit transaction
+		if err := tx.Commit().Error; err != nil {
+			return nil, fmt.Errorf("failed to commit transaction: %w", err)
+		}
+
+		return &models.UpdateJobResponse{
+			JobID:    newJob.ID,
+			IsNewJob: true,
+			Message:  "Job updated successfully. New job created due to time/target changes.",
+		}, nil
+	} else {
+		// Only update prompt and name (no time/target changes)
+		updates := make(map[string]interface{})
+		updates["updated_at"] = time.Now()
+
+		if req.Name != nil {
+			updates["name"] = *req.Name
+		}
+		if req.Payload != nil {
+			updates["payload"] = *req.Payload
+		}
+
+		// Update job in database
+		if err := s.db.GORM.Model(&models.Jobs{}).Where("id = ? AND user_id = ? AND is_deleted = false", jobUUID, userID).Updates(updates).Error; err != nil {
+			return nil, fmt.Errorf("failed to update job: %w", err)
+		}
+
+		return &models.UpdateJobResponse{
+			JobID:    existingJob.ID,
+			IsNewJob: false,
+			Message:  "Job updated successfully.",
+		}, nil
+	}
+}
+
 // ✅ ADD: Update current task ID for job
 func (s *JobService) UpdateCurrentTaskID(ctx context.Context, jobID uuid.UUID, taskID *uuid.UUID) error {
 	query := `UPDATE jobs SET current_task_id = $1, updated_at = $2 WHERE id = $3 AND status = 'active' AND is_deleted = false`
